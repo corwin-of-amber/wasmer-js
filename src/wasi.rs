@@ -5,12 +5,13 @@ use wasm_bindgen::JsCast;
 use wasmer::{Imports, Instance, Module, Store};
 use wasmer_wasi::Pipe;
 use wasmer_wasi::{Stderr, Stdin, Stdout, WasiError, WasiFunctionEnv, WasiState};
+use crate::copipe::Copipe;
 
 #[wasm_bindgen]
 pub struct WASI {
     store: Store,
-    stdout: Pipe,
-    stdin: Pipe,
+    stdout: Copipe,
+    stdin: Copipe,
     stderr: Pipe,
     wasi_env: WasiFunctionEnv,
     module: Option<Module>,
@@ -91,9 +92,10 @@ impl WASI {
                 // mem_fs
             }
         };
+        let stdio = js_sys::Reflect::get(&config, &"stdio".into())?;
         let mut store = Store::default();
-        let stdout = Pipe::default();
-        let stdin = Pipe::default();
+        let stdout = Copipe { hook: stdio.clone() };
+        let stdin = Copipe { hook: stdio.clone() };
         let stderr = Pipe::default();
         let wasi_env = WasiState::new(&args.get(0).unwrap_or(&"".to_string()))
             .args(if args.len() > 0 { &args[1..] } else { &[] })

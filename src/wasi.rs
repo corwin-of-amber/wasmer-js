@@ -12,7 +12,7 @@ pub struct WASI {
     store: Store,
     stdout: Copipe,
     stdin: Copipe,
-    stderr: Pipe,
+    stderr: Copipe,
     wasi_env: WasiFunctionEnv,
     module: Option<Module>,
     instance: Option<Instance>,
@@ -96,7 +96,7 @@ impl WASI {
         let mut store = Store::default();
         let stdout = Copipe { hook: stdio.clone() };
         let stdin = Copipe { hook: stdio.clone() };
-        let stderr = Pipe::default();
+        let stderr = Copipe { hook: stdio.clone() };
         let wasi_env = WasiState::new(&args.get(0).unwrap_or(&"".to_string()))
             .args(if args.len() > 0 { &args[1..] } else { &[] })
             .envs(env)

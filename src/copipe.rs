@@ -41,7 +41,7 @@ impl VirtualFile for Copipe {
     fn last_modified(&self) -> u64 { 0 }
     fn created_time(&self) -> u64 { 0 }
     fn size(&self) -> u64 { 0 }
-    fn set_len(&mut self, len: u64) -> Result<(), FsError> { Ok(()) }
+    fn set_len(&mut self, _len: u64) -> Result<(), FsError> { Ok(()) }
     fn unlink(&mut self) -> Result<(), FsError> { Ok(()) }
     fn bytes_available_read(&self) -> Result<Option<usize>, FsError> {
         Ok(Some(0))

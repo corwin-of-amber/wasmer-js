@@ -1,10 +1,10 @@
 use crate::fs::MemFS;
 use std::io::{Read, Write};
-use js_sys::{Object, Reflect};
+use js_sys::{ArrayBuffer, Object, Reflect, Uint8Array};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasmer::{Imports, Instance, Module, Store};
-use wasmer_wasi::Pipe;
+//use wasmer_wasi::Pipe;
 use wasmer_wasi::{Stderr, Stdin, Stdout, WasiError, WasiFunctionEnv, WasiState};
 use crate::copipe::Copipe;
 
@@ -89,7 +89,10 @@ impl WASI {
             let fs = js_sys::Reflect::get(&config, &"fs".into())?;
             if fs.is_undefined() {
                 MemFS::new()?
-            } else {
+            } else if fs.is_instance_of::<ArrayBuffer>() {
+                MemFS::new_with_storage(fs.try_into().unwrap())?
+            }
+            else {
                 MemFS::from_js(fs)?
             }
         };
@@ -125,7 +128,7 @@ impl WASI {
 
     #[wasm_bindgen(getter)]
     pub fn fs(&mut self) -> Result<MemFS, JsValue> {
-        let mut state = self.wasi_env.data_mut(&mut self.store).state();
+        let state = self.wasi_env.data_mut(&mut self.store).state();
         let mem_fs = state
             .fs
             .fs_backing

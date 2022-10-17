@@ -1,18 +1,19 @@
-use js_sys::Reflect;
+use js_sys::{ArrayBuffer, Reflect};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
-use wasmer_vfs::mem_fs::FileSystem as MemoryFilesystem;
+use wasmer_vfs::mem_fs::{FileSystem as MemoryFilesystem};
 use wasmer_vfs::{
     DirEntry, FileSystem, FileType, FsError, Metadata, OpenOptions, ReadDir, VirtualFile,
 };
+use wasmer_vfs::mem_fs::shared_slab::SharedSlab;
 use crate::wasi::generic_of_jsval;
 
 #[wasm_bindgen]
 #[derive(Debug, Clone)]
 pub struct MemFS {
-    inner: Arc<MemoryFilesystem>,
+    inner: Arc<dyn FileSystem>,
 }
 
 fn metadata_to_object(metadata: &Metadata) -> Result<js_sys::Object, JsValue> {
@@ -62,12 +63,20 @@ impl MemFS {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Result<MemFS, JsValue> {
         Ok(MemFS {
-            inner: Arc::new(MemoryFilesystem::default()),
+            inner: Arc::new(<MemoryFilesystem>::default()),
         })
     }
 
     pub fn from_js(jso: JsValue) -> Result<MemFS, JsValue> {
         Ok(generic_of_jsval::<MemFS>(jso, "MemFS")?.clone())
+    }
+
+    pub fn new_with_storage(abuf: ArrayBuffer) -> Result<MemFS, JsValue> {
+        let mut fs = MemoryFilesystem::<SharedSlab<_>>::default();
+        fs.mount(abuf).map_err(|_| js_sys::Error::new("Error initializing shared fs"))?;
+        Ok(MemFS {
+            inner: Arc::new(fs),
+        })
     }
 
     #[wasm_bindgen(js_name = readDir)]

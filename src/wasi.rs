@@ -337,9 +337,9 @@ impl WASI {
 // https://github.com/rustwasm/wasm-bindgen/issues/2231#issuecomment-1147260391
 pub fn generic_of_jsval<T: RefFromWasmAbi<Abi=u32>>(js: JsValue, classname: &str) -> Result<T::Anchor, JsValue> {
     if !js.is_object() {
-        return Err(JsValue::from_str(
-            format!("Value supplied as {} is not an object", classname).as_str(),
-        ));
+        return Err(js_sys::Error::new(
+            &format!("expected object, got {:?}", js).as_str(),
+        ).into());
     }
 
     let ctor_name = Object::get_prototype_of(&js).constructor().name();
@@ -349,6 +349,8 @@ pub fn generic_of_jsval<T: RefFromWasmAbi<Abi=u32>>(js: JsValue, classname: &str
         let foo = unsafe { T::ref_from_abi(ptr_u32) };
         Ok(foo)
     } else {
-        Err(JsValue::NULL)
+        Err(js_sys::Error::new(
+          &format!("expected '{}', got '{}'", classname, ctor_name).as_str()
+        ).into())
     }
 }

@@ -57,7 +57,7 @@ export const init = async (
 
   setRegistry(initValue);
 
-  let output = await load(initValue.module, initValue.memory);
+  let output = await load({module_or_path: initValue.module, ...initValue}); //.module, initValue.memory);
   if (initValue.log) {
     initializeLogger(initValue.log);
   }

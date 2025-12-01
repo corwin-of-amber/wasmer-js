@@ -22,11 +22,13 @@ pub(crate) fn input_pipe() -> (Pipe, WritableStream) {
     let callback: wasm_bindgen::prelude::Closure<dyn Fn(Uint8Array) -> f64> =
         wasm_bindgen::closure::Closure::new(|chunk: Uint8Array| chunk.byte_length() as f64);
 
+    let strategy = web_sys::QueuingStrategy::new();
+    strategy.set_high_water_mark(256.0);
+    strategy.set_size(callback.into_js_value().unchecked_ref());
+
     let stream = WritableStream::new_with_underlying_sink_and_strategy(
         sink.unchecked_ref(),
-        web_sys::QueuingStrategy::new()
-            .high_water_mark(256.0)
-            .size(callback.into_js_value().unchecked_ref()),
+        strategy.unchecked_ref(),
     )
     .unwrap();
 
@@ -118,11 +120,13 @@ pub(crate) fn output_pipe() -> (Pipe, ReadableStream) {
     let callback: wasm_bindgen::prelude::Closure<dyn Fn(Uint8Array) -> f64> =
         wasm_bindgen::closure::Closure::new(|chunk: Uint8Array| chunk.byte_length() as f64);
 
+    let strategy = web_sys::QueuingStrategy::new();
+    strategy.set_high_water_mark(256.0);
+    strategy.set_size(callback.into_js_value().unchecked_ref());
+
     let stream = ReadableStream::new_with_underlying_source_and_strategy(
         source.unchecked_ref(),
-        web_sys::QueuingStrategy::new()
-            .high_water_mark(256.0)
-            .size(callback.into_js_value().unchecked_ref()),
+        strategy.unchecked_ref(),
     )
     .unwrap();
 

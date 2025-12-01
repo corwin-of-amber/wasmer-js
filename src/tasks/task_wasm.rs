@@ -32,18 +32,19 @@ pub(crate) fn to_scheduler_message(
         recycle,
         globals,
         pre_run,
+        ..
     } = task;
 
     let module_bytes = module.serialize().unwrap();
 
     let (memory_ty, memory, run_type) = match spawn_type {
-        wasmer_wasix::runtime::SpawnMemoryType::CreateMemory => {
+        wasmer_wasix::runtime::SpawnType::CreateMemory => {
             (None, None, WasmMemoryType::CreateMemory)
         }
-        wasmer_wasix::runtime::SpawnMemoryType::CreateMemoryOfType(ty) => {
+        wasmer_wasix::runtime::SpawnType::CreateMemoryOfType(ty) => {
             (Some(ty), None, WasmMemoryType::CreateMemoryOfType(ty))
         }
-        wasmer_wasix::runtime::SpawnMemoryType::CopyMemory(m, store) => {
+        wasmer_wasix::runtime::SpawnType::CopyMemory(m, store) => {
             let memory_ty = m.ty(&store);
             let memory = m.as_jsvalue(&store);
 
@@ -60,7 +61,7 @@ pub(crate) fn to_scheduler_message(
                 WasmMemoryType::ShareMemory(memory_ty),
             )
         }
-        wasmer_wasix::runtime::SpawnMemoryType::ShareMemory(m, store) => {
+        wasmer_wasix::runtime::SpawnType::ShareMemory(m, store) => {
             let ty = m.ty(&store);
             let memory = m.as_jsvalue(&store);
             (
@@ -68,7 +69,8 @@ pub(crate) fn to_scheduler_message(
                 Some(memory),
                 WasmMemoryType::ShareMemory(m.ty(&store)),
             )
-        }
+        },
+        wasmer_wasix::runtime::SpawnType::NewLinkerInstanceGroup(_, _, _) => todo!()
     };
 
     let memory = memory.map(|m| {
@@ -316,6 +318,8 @@ fn build_ctx_and_store(
         store_snapshot,
         spawn_type,
         update_layout,
+        false,  /* call_initialize */
+        None
     ) {
         Ok(a) => a,
         Err(err) => {

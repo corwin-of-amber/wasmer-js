@@ -12,12 +12,13 @@ use wasmer_config::{
     hash::Sha256Hash,
     package::{PackageHash, PackageId, PackageSource},
 };
+use wasmer_config::package::SuggestedCompilerOptimizations;
 use wasmer_package::package::Package;
 use wasmer_types::ModuleHash;
 use wasmer_wasix::{
     bin_factory::{BinaryPackage, BinaryPackageCommand},
     os::{Tty, TtyOptions},
-    runners::{wasi::WasiRunner, Runner},
+    runners::wasi::{WasiRunner, RuntimeOrEngine},
     Runtime as _,
 };
 use web_sys::{ReadableStream, WritableStream};
@@ -181,6 +182,7 @@ impl Wasmer {
                 wasm.into(),
                 hash,
                 None,
+                SuggestedCompilerOptimizations { pass_params: None }
             )],
             additional_host_mapped_directories: vec![],
         };
@@ -248,7 +250,8 @@ impl Command {
         // Note: The WasiRunner::run_command() method blocks, so we need to run
         // it on the thread pool.
         tasks.task_dedicated(Box::new(move || {
-            let result = runner.run_command(&command_name, &pkg, runtime);
+            let result = runner.run_command(&command_name, &pkg,
+                                            RuntimeOrEngine::Runtime(runtime));
             let _ = sender.send(ExitCondition::from_result(result));
             thread_pool.close();
         }))?;

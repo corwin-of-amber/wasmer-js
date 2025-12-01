@@ -14,10 +14,13 @@ pub struct RegistryConfig {
     pub token: Option<String>,
 }
 
-impl TryFromJsValue for RegistryConfig {
-    type Error = JsValue;
+type JsError = JsValue;
 
-    fn try_from_js_value(value: wasm_bindgen::prelude::JsValue) -> Result<Self, Self::Error> {
+impl TryFromJsValue for RegistryConfig {
+    fn try_from_js_value_ref(value: &JsValue) -> Option<Self> {
+        return Self::try_from_js_value(value.clone()).map_or(None, |v| Some(v));
+    }
+    fn try_from_js_value(value: wasm_bindgen::prelude::JsValue) -> Result<Self, JsError> {
         let token_key = JsValue::from_str("token");
         let registry_url_key = JsValue::from_str("registryUrl");
         let token = if has(&value, &token_key)? {

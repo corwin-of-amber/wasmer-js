@@ -22,13 +22,12 @@ impl WorkerHandle {
         let name = format!("worker-{worker_id}");
 
         let worker_url = worker_url();
-        let worker = web_sys::Worker::new_with_options(
-            &worker_url,
-            web_sys::WorkerOptions::new()
-                .name(&name)
-                .type_(web_sys::WorkerType::Module),
-        )
-        .map_err(crate::utils::js_error)?;
+        let worker = web_sys::WorkerOptions::new();
+        worker.set_name(&name);
+        worker.set_type(web_sys::WorkerType::Module);
+
+        let worker = web_sys::Worker::new_with_options(&worker_url, &worker)
+            .map_err(crate::utils::js_error)?;
 
         let on_message: Closure<dyn FnMut(web_sys::MessageEvent)> = Closure::new({
             let sender = sender.clone();
@@ -179,9 +178,12 @@ fn worker_url() -> String {
 static DEFAULT_WORKER_URL: Lazy<String> = Lazy::new(|| {
     let script = include_str!("../../src-js/worker.js");
 
+    let props = web_sys::BlobPropertyBag::new();
+    props.set_type("application/javascript");
+
     let blob = web_sys::Blob::new_with_u8_array_sequence_and_options(
         Array::from_iter([Uint8Array::from(script.as_bytes())]).as_ref(),
-        web_sys::BlobPropertyBag::new().type_("application/javascript"),
+        &props
     )
     .unwrap();
 

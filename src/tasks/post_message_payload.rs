@@ -310,6 +310,7 @@ mod tests {
             env,
             module,
             false,
+            false,
         ))
         .unwrap();
         let msg = match msg {

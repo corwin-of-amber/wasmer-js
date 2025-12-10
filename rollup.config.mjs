@@ -11,7 +11,11 @@ import fs from "fs";
 
 const LIBRARY_NAME = "WasmerSDK"; // Change with your library's name
 const EXTERNAL = [
-  "./pkg/"
+  "./pkg/",
+  "web-worker",
+  "node:url",
+  "node:fs/promises",
+  "node:path"
 ]; // Indicate which modules should be treated as external
 const GLOBALS = {}; // https://rollupjs.org/guide/en/#outputglobals
 

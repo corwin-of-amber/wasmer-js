@@ -1,8 +1,10 @@
 use futures::channel::oneshot;
 use std::sync::Arc;
 use wasm_bindgen::{prelude::wasm_bindgen, JsCast};
-use wasmer_wasix::{Runtime as _, WasiEnvBuilder};
-
+use wasmer::{RuntimeError, Store};
+use wasmer_wasix::{Runtime as _, WasiEnv};
+use wasmer_wasix::runtime::module_cache::HashedModuleData;
+use wasmer_wasix::runtime::task_manager::TaskWasmRunProperties;
 use crate::{instance::ExitCondition, utils::Error, Instance, RunOptions};
 
 const DEFAULT_PROGRAM_NAME: &str = "wasm";
@@ -35,8 +37,8 @@ async fn run_wasix_inner(wasm_module: WasmModule, config: RunOptions) -> Result<
         .as_string()
         .unwrap_or_else(|| DEFAULT_PROGRAM_NAME.to_string());
 
-    let mut builder = WasiEnvBuilder::new(program_name).runtime(runtime.clone());
-    let (stdin, stdout, stderr) = config.configure_builder(&mut builder)?;
+    let mut builder = WasiEnv::builder(program_name).runtime(runtime.clone());
+    let (stdin, stdout, stderr) = config.configure_builder(&mut builder, runtime.clone())?;
 
     let (exit_code_tx, exit_code_rx) = oneshot::channel();
 
@@ -49,7 +51,22 @@ async fn run_wasix_inner(wasm_module: WasmModule, config: RunOptions) -> Result<
         module,
         Box::new(move |module| {
             let _span = tracing::debug_span!("run").entered();
-            let result = builder.run(module).map_err(anyhow::Error::new);
+            let mut store = Store::default();
+            let result =
+                match builder.instantiate(module, &mut store) {
+                    Ok((_, fenv)) => {
+                        crate::fs::hooks::Hooks::initiated(fenv.data(&store));
+                        wasmer_wasix::bin_factory::run_exec(TaskWasmRunProperties {
+                            ctx: fenv,
+                            store: store,
+                            recycle: None,
+                            trigger_result: None
+                        });
+                        Ok(())
+                    },
+                    Err(e) => Err(anyhow::Error::new(e))
+                };
+
             let _ = exit_code_tx.send(ExitCondition::from_result(result));
         }),
     )?;
@@ -69,18 +86,23 @@ extern "C" {
 }
 
 impl WasmModule {
-    async fn to_module(
+    pub(crate) async fn to_module(
         &self,
         runtime: &dyn wasmer_wasix::Runtime,
     ) -> Result<wasmer::Module, Error> {
         if let Some(module) = self.dyn_ref::<js_sys::WebAssembly::Module>() {
             Ok(module.clone().into())
-        } else if let Some(buffer) = self.dyn_ref::<js_sys::Uint8Array>() {
-            let buffer = buffer.to_vec();
-            let module = runtime.load_module(&buffer).await?;
-            Ok(module)
         } else {
-            unreachable!();
+            let buffer = self.dyn_ref::<js_sys::Uint8Array>().map(|o| o.clone())
+                /* coerce to Uint8Array (this is sometimes needed, esp. when multiple JS contexts exist) */
+                .unwrap_or_else(|| js_sys::Uint8Array::new(self))
+                .to_vec();
+            if buffer.len() == 0 {
+                Err(RuntimeError::new("invalid WASM binary data").into())
+            } else {
+                let module = runtime.load_hashed_module(HashedModuleData::new(buffer), None).await?;
+                Ok(module)
+            }
         }
     }
 }

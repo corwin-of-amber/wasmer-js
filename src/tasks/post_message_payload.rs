@@ -27,12 +27,12 @@ impl PostMessagePayload {
 pub(crate) enum BlockingJob {
     Thunk(#[derivative(Debug(format_with = "crate::utils::hidden"))] BlockingTask),
     SpawnWithModule {
-        module: WebAssembly::Module,
+        module: wasmer::Module,
         #[derivative(Debug(format_with = "crate::utils::hidden"))]
         task: BlockingModuleTask,
     },
     SpawnWithModuleAndMemory {
-        module: WebAssembly::Module,
+        module: wasmer::Module,
         /// An instance of the WebAssembly linear memory that has already been
         /// created.
         memory: Option<WebAssembly::Memory>,
@@ -63,6 +63,7 @@ mod consts {
     pub(crate) const TYPE_SPAWN_WITH_MODULE_AND_MEMORY: &str = "spawn-with-module-and-memory";
     pub(crate) const PTR: &str = "ptr";
     pub(crate) const MODULE: &str = "module";
+    pub(crate) const BYTES: &str = "bytes";
     pub(crate) const MEMORY: &str = "memory";
     pub(crate) const MODULE_HASH: &str = "module-hash";
 }
@@ -83,6 +84,7 @@ impl PostMessagePayload {
             PostMessagePayload::Blocking(BlockingJob::SpawnWithModule { module, task }) => {
                 Serializer::new(consts::TYPE_SPAWN_WITH_MODULE)
                     .boxed(consts::PTR, task)
+                    .boxed(consts::BYTES, module.serialize()?)
                     .set(consts::MODULE, module)
                     .finish()
             }
@@ -92,7 +94,7 @@ impl PostMessagePayload {
                 spawn_wasm,
             }) => Serializer::new(consts::TYPE_SPAWN_WITH_MODULE_AND_MEMORY)
                 .boxed(consts::PTR, spawn_wasm)
-                .set(consts::MODULE, module)
+                .set(consts::MODULE, module) // bytes are conveniently included within spawn_wasm
                 .set(consts::MEMORY, memory)
                 .finish(),
             PostMessagePayload::Notification(Notification::CacheModule { hash, module }) => {
@@ -138,21 +140,22 @@ impl PostMessagePayload {
             }
             consts::TYPE_SPAWN_WITH_MODULE => {
                 let task = de.boxed(consts::PTR)?;
-                let module = de.js(consts::MODULE)?;
+                let module: WebAssembly::Module = de.js(consts::MODULE)?;
+                let bytes: bytes::Bytes = de.boxed(consts::BYTES)?;
 
                 Ok(PostMessagePayload::Blocking(BlockingJob::SpawnWithModule {
-                    module,
+                    module: wasmer::Module::from((module, bytes)),
                     task,
                 }))
             }
             consts::TYPE_SPAWN_WITH_MODULE_AND_MEMORY => {
-                let module = de.js(consts::MODULE)?;
+                let module: WebAssembly::Module = de.js(consts::MODULE)?;
                 let memory = de.js(consts::MEMORY).ok();
                 let spawn_wasm = de.boxed(consts::PTR)?;
 
                 Ok(PostMessagePayload::Blocking(
                     BlockingJob::SpawnWithModuleAndMemory {
-                        module,
+                        module: module.into(),
                         memory,
                         spawn_wasm,
                     },
@@ -233,7 +236,7 @@ mod tests {
         let module = wasmer::Module::new(&engine, wasm).unwrap();
         let (sender, receiver) = oneshot::channel();
         let msg = PostMessagePayload::Blocking(BlockingJob::SpawnWithModule {
-            module: JsValue::from(module).dyn_into().unwrap(),
+            module: module, //JsValue::from(module).dyn_into().unwrap(),
             task: Box::new(|m| {
                 sender
                     .send(
@@ -319,7 +322,7 @@ mod tests {
                 memory,
                 spawn_wasm,
             } => PostMessagePayload::Blocking(BlockingJob::SpawnWithModuleAndMemory {
-                module: module.into(),
+                module, //: module.into(),
                 memory: memory.map(|m| m.as_jsvalue(&wasmer::Store::default()).dyn_into().unwrap()),
                 spawn_wasm,
             }),
@@ -340,7 +343,7 @@ mod tests {
         spawn_wasm
             .begin()
             .await
-            .execute(module, memory.into())
+            .execute(module.into(), memory.into())
             .await
             .unwrap();
         assert!(flag.load(Ordering::SeqCst));

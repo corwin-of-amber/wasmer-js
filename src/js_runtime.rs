@@ -3,9 +3,12 @@ use std::{
     sync::Arc,
 };
 
-use wasm_bindgen::{prelude::wasm_bindgen, JsCast};
+use futures::channel::oneshot;
 
-use crate::{runtime::Runtime, utils::Error};
+use wasm_bindgen::{prelude::wasm_bindgen, JsCast};
+use wasmer::Store;
+use wasmer_wasix::{WasiEnv, runtime::task_manager::TaskWasmRunProperties};
+use crate::{runtime::Runtime, run::WasmModule, utils::Error, RunOptions, Instance};
 
 #[derive(Clone, Debug, wasm_bindgen_derive::TryFromJsValue)]
 #[repr(transparent)]
@@ -37,7 +40,7 @@ impl JsRuntime {
             None => Some(crate::DEFAULT_REGISTRY.to_string()),
         };
 
-        let mut rt = Runtime::new();
+        let mut rt = Runtime::new().with_default_pool();
 
         if let Some(registry) = registry.as_deref() {
             let api_key = options.as_ref().and_then(|opts| opts.api_key());
@@ -62,6 +65,48 @@ impl JsRuntime {
             }
             None => Ok(None),
         }
+    }
+
+    pub fn tty_echo(&self) -> bool {
+        use wasmer_wasix::os::TtyBridge;
+        self.rt.tty_get().echo
+    }
+
+    pub async fn exec_bare(&self, module: WasmModule, config: RunOptions)
+                     -> Result<Instance, Error> {
+        let runtime = self.rt.with_default_pool();
+        runtime.set_connected_to_tty(true);
+        let module: wasmer::Module = module.to_module(&runtime).await?;
+
+        let name: String = config.program().as_string().unwrap_or("bare".to_string());
+
+        let mut r = WasiEnv::builder(name)
+            //.runtime(Arc::new(runtime))
+            .current_dir(config.parse_cwd()?.unwrap_or("/".to_string()));
+
+        let (stdin, stdout, stderr) = config.configure_builder(&mut r, Arc::new(runtime)).unwrap();
+
+        let (_sender, exit) = oneshot::channel();
+        let instance = Instance {
+            stdin,
+            stdout,
+            stderr,
+            exit,
+        };
+
+        let mut store = Store::default();
+        let (_, fenv) = r.instantiate(module, &mut store)?;
+
+        wasmer_wasix::bin_factory::run_exec(TaskWasmRunProperties {
+            ctx: fenv,
+            store: store,
+            recycle: None,
+            trigger_result: None
+        });
+
+        /* @todo send exit code? */
+
+        Ok(instance)
     }
 }
 

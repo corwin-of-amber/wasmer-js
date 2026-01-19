@@ -264,9 +264,9 @@ impl Source for UnsupportedSource {
 #[cfg(test)]
 mod tests {
     use wasm_bindgen_test::wasm_bindgen_test;
-    use wasmer::Module;
-    use wasmer_wasix::{Runtime as _, WasiEnvBuilder};
-
+    use wasmer::{Module, Store};
+    use wasmer_wasix::{Runtime as _, WasiEnv};
+    use wasmer_wasix::runtime::task_manager::TaskWasmRunProperties;
     use super::*;
 
     pub(crate) const TRIVIAL_WAT: &[u8] = br#"(
@@ -283,9 +283,17 @@ mod tests {
 
         let module = Module::new(&runtime.engine(), TRIVIAL_WAT).unwrap();
 
-        WasiEnvBuilder::new("trivial")
+        let mut store = Store::default();
+        let (_, fenv) = WasiEnv::builder("trivial")
             .runtime(Arc::new(runtime))
-            .run(module)
+            .instantiate(module, &mut store)
             .unwrap();
+
+        wasmer_wasix::bin_factory::run_exec(TaskWasmRunProperties {
+            ctx: fenv,
+            store: store,
+            recycle: None,
+            trigger_result: None
+        });
     }
 }

@@ -178,7 +178,7 @@ impl SchedulerState {
             }
             SchedulerMessage::SpawnWithModule { module, task } => {
                 self.post_message(PostMessagePayload::Blocking(BlockingJob::SpawnWithModule {
-                    module: JsValue::from(module).unchecked_into(),
+                    module, //: JsValue::from(module).unchecked_into(),
                     task,
                 }))
             }
@@ -189,7 +189,7 @@ impl SchedulerState {
             } => {
                 let temp_store = wasmer::Store::default();
                 let memory = memory.map(|m| m.as_jsvalue(&temp_store).dyn_into().unwrap());
-                let module = JsValue::from(module).dyn_into().unwrap();
+                //let module = JsValue::from(module).dyn_into().unwrap();
 
                 self.post_message(PostMessagePayload::Blocking(
                     BlockingJob::SpawnWithModuleAndMemory {

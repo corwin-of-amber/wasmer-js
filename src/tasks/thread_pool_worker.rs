@@ -59,7 +59,7 @@ impl ThreadPoolWorker {
             }
             BlockingJob::SpawnWithModule { module, task } => {
                 let _guard = self.busy();
-                task(module.into());
+                task(module);
             }
             BlockingJob::SpawnWithModuleAndMemory {
                 module,
@@ -68,7 +68,7 @@ impl ThreadPoolWorker {
             } => {
                 let task = spawn_wasm.begin().await;
                 let _guard = self.busy();
-                task.execute(module, memory.into()).await?;
+                task.execute(module.into(), memory.into()).await?;
             }
         }
 

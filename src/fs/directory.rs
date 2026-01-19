@@ -1,6 +1,6 @@
 use std::{
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, RwLock}
 };
 
 use anyhow::Context;
@@ -8,14 +8,21 @@ use js_sys::Reflect;
 use tracing::Instrument;
 use virtual_fs::{AsyncReadExt, AsyncWriteExt, FileSystem, FileType};
 use wasm_bindgen::{prelude::wasm_bindgen, JsCast, JsValue};
-use wasmer_wasix::runtime::task_manager::InlineWaker;
 
-use crate::{utils::Error, StringOrBytes};
+use shared_buffer::OwnedBuffer;
+use crate::{utils::Error, StringOrBytes, fs::hooks::Hooks};
 
 /// A directory that can be mounted inside a WASIX instance.
-#[derive(Debug, Clone, wasm_bindgen_derive::TryFromJsValue)]
+#[derive(Debug, wasm_bindgen_derive::TryFromJsValue)]
 #[wasm_bindgen]
-pub struct Directory(Arc<dyn FileSystem>);
+pub struct Directory(Arc<dyn FileSystem>, RwLock<Hooks>);
+
+impl Clone for Directory {
+    /// Each clone gets its own Hooks
+    fn clone(&self) -> Self {
+        Self(self.0.clone(), RwLock::new(self.1.read().unwrap().clone()))
+    }
+}
 
 #[wasm_bindgen]
 impl Directory {
@@ -25,10 +32,15 @@ impl Directory {
         match init {
             Some(init) => {
                 let fs = init.initialize()?;
-                Ok(Directory(fs))
+                Ok(Directory(fs, Default::default()))
             }
             None => Ok(Directory::default()),
         }
+    }
+
+    #[wasm_bindgen(js_name = "setHooks")]
+    pub fn set_hooks(&mut self, hooks: Hooks) {
+        self.1.set(hooks).expect("poisoned")
     }
 
     /// Read the contents of a directory.
@@ -71,9 +83,7 @@ impl Directory {
     /// If a string is provided, it is encoded as UTF-8.
     #[wasm_bindgen(js_name = "writeFile")]
     pub async fn write_file(&self, mut path: String, contents: StringOrBytes) -> Result<(), Error> {
-        if !path.starts_with('/') {
-            path.insert(0, '/');
-        }
+        slashify(&mut path);
 
         let mut f = self
             .new_open_options()
@@ -85,6 +95,21 @@ impl Directory {
         f.write_all(&contents).await?;
 
         Ok(())
+    }
+
+    /// Writes a read-only, offloaded file.
+    ///
+    /// This is slightly more efficient than a regular memfs file.
+    #[wasm_bindgen(js_name = "writeFileRO")]
+    pub async fn write_file_ro(&self, mut path: String, contents: StringOrBytes) -> Result<(), Error> {
+        slashify(&mut path);
+        let path = PathBuf::from(path);
+
+        if let Some(fs) = self.0.downcast_ref::<virtual_fs::mem_fs::FileSystem>() {
+            fs.insert_ro_file(&path, OwnedBuffer::from_bytes(contents.as_bytes()))?;
+            Ok(())
+        }
+        else { Err(Error::js("cannot create ro file: not a memfs")) }
     }
 
     /// Read the contents of a file from this directory.
@@ -106,14 +131,32 @@ impl Directory {
         Ok(string.into())
     }
 
+    /// Read the contents of a file from this directory, synchronously.
+    /// This is only possible if the file is in-memory.
+    ///
+    /// Note that the path is relative to the directory's root.
+    #[wasm_bindgen(js_name = "readFileSync")]
+    pub fn read_file_sync(&self, path: String) -> Result<js_sys::Uint8Array, Error> {
+        let buffer = self._read_file_sync(path)?;
+        Ok(js_sys::Uint8Array::from(&buffer[..]))
+    }
+
     /// Create a directory.
     #[wasm_bindgen(js_name = "createDir")]
     pub async fn create_dir(&self, mut path: String) -> Result<(), Error> {
-        if !path.starts_with('/') {
-            path.insert(0, '/');
-        }
+        slashify(&mut path);
 
         FileSystem::create_dir(self, path.as_ref())?;
+
+        Ok(())
+    }
+
+    /// Create a directory.
+    #[wasm_bindgen(js_name = "createDirs")]
+    pub async fn create_dirs(&self, mut path: String) -> Result<(), Error> {
+        slashify(&mut path);
+
+        create_dir_all(self, path.as_ref())?;
 
         Ok(())
     }
@@ -141,13 +184,39 @@ impl Directory {
 
         Ok(())
     }
+
+    #[wasm_bindgen(js_name = "mountDir")]
+    pub fn mount_dir(&self, mut path: String, dir: &Directory) -> Result<(), Error> {
+        slashify(&mut path);
+
+        FileSystem::mount(self, "/".into(), path.as_ref(), Box::new(dir.clone()))?;
+
+        Ok(())
+    }
+
+    /// A soft link is almost like a symlink, except it must be an absolute path
+    /// from this Directory's root.
+    #[wasm_bindgen(js_name = "softLink")]
+    pub fn soft_link(&self, mut to_path: String, mut from_path: String) -> Result<(), Error> {
+        if let Some(fs) = self.0.downcast_ref::<virtual_fs::mem_fs::FileSystem>() {
+            slashify(&mut to_path);
+            slashify(&mut from_path);
+
+            fs.insert_arc_file_at(from_path.into(), Arc::new(self.clone()), to_path.into())?;
+
+            Ok(())
+        }
+        else { Err(Error::js("cannot create soft link: not a memfs")) }
+    }
 }
 
 impl Directory {
+    pub fn wrap(fs: Arc<dyn FileSystem>) -> Self {
+        Directory(fs.clone(), Default::default())
+    }
+
     async fn _read_file(&self, mut path: String) -> Result<Vec<u8>, Error> {
-        if !path.starts_with('/') {
-            path.insert(0, '/');
-        }
+        slashify(&mut path);
 
         let mut f = self.new_open_options().read(true).open(&path)?;
         let mut buffer = Vec::with_capacity(f.size() as usize);
@@ -155,17 +224,29 @@ impl Directory {
 
         Ok(buffer)
     }
+
+    fn _read_file_sync(&self, mut path: String) -> Result<Vec<u8>, Error> {
+        slashify(&mut path);
+
+        let f = self.new_open_options().read(true).open(&path)?;
+        if let Some(obuf) = f.as_owned_buffer() {
+            let buffer = obuf.as_slice().to_vec();
+            Ok(buffer)
+        }
+        else { Err(Error::JavaScript("not synchronous file".into())) }
+    }
 }
 
 impl Default for Directory {
     fn default() -> Self {
-        Directory(Arc::new(virtual_fs::mem_fs::FileSystem::default()))
+        Directory(Arc::new(virtual_fs::mem_fs::FileSystem::default()), Default::default())
     }
 }
 
 impl FileSystem for Directory {
     #[tracing::instrument(level = "trace", skip(self))]
     fn read_dir(&self, path: &std::path::Path) -> virtual_fs::Result<virtual_fs::ReadDir> {
+        self.1.write().unwrap().trigger_populate();
         self.0.read_dir(path)
     }
 
@@ -190,6 +271,7 @@ impl FileSystem for Directory {
 
     #[tracing::instrument(level = "trace", skip(self))]
     fn metadata(&self, path: &std::path::Path) -> virtual_fs::Result<virtual_fs::Metadata> {
+        self.1.write().unwrap().trigger_populate();
         self.0.metadata(path)
     }
 
@@ -209,6 +291,7 @@ impl FileSystem for Directory {
 
     #[tracing::instrument(level = "trace", skip(self))]
     fn symlink_metadata(&self, path: &Path) -> virtual_fs::Result<virtual_fs::Metadata> {
+        self.1.write().unwrap().trigger_populate();
         self.0.symlink_metadata(path)
     }
 
@@ -280,6 +363,12 @@ impl DirectoryInit {
     }
 }
 
+fn slashify(path: &mut String) {
+    if !path.starts_with('/') {
+        path.insert(0, '/');
+    }
+}
+
 /// Construct an in-memory [`FileSystem`] based on an object mapping paths to
 /// their contents (`Record<string, string | Uint8Array>`).
 fn in_memory_filesystem(record: &js_sys::Object) -> Result<virtual_fs::mem_fs::FileSystem, Error> {
@@ -287,9 +376,7 @@ fn in_memory_filesystem(record: &js_sys::Object) -> Result<virtual_fs::mem_fs::F
 
     for (key, contents) in crate::utils::object_entries(record)? {
         let mut path = String::from(key);
-        if !path.starts_with('/') {
-            path.insert(0, '/');
-        }
+        slashify(&mut path);
         let path = PathBuf::from(path);
 
         let contents: StringOrBytes = contents.unchecked_into();
@@ -299,11 +386,15 @@ fn in_memory_filesystem(record: &js_sys::Object) -> Result<virtual_fs::mem_fs::F
             create_dir_all(&fs, parent)?;
         }
 
+
         tracing::trace!(
             path=%path.display(),
             file.length=contents.len(),
             "Adding file to directory",
         );
+        fs.insert_ro_file(&path, OwnedBuffer::from_bytes(contents))?;
+
+        /*
         InlineWaker::block_on(async {
             let mut f = fs
                 .new_open_options()
@@ -313,7 +404,7 @@ fn in_memory_filesystem(record: &js_sys::Object) -> Result<virtual_fs::mem_fs::F
             f.write_all(&contents).await?;
             f.flush().await
         })
-        .with_context(|| format!("Unable to write to \"{}\"", path.display()))?;
+        .with_context(|| format!("Unable to write to \"{}\"", path.display()))?;*/
     }
 
     Ok(fs)
@@ -329,7 +420,7 @@ fn create_dir_all(fs: &dyn FileSystem, path: &Path) -> Result<(), anyhow::Error>
         }
 
         fs.create_dir(ancestor).with_context(|| {
-            format!("Unable to create the \"{}\" directory", ancestor.display())
+            format!("Unable to create directory: \"{}\"", ancestor.display())
         })?;
     }
 

@@ -29,7 +29,7 @@ use crate::{
     runtime::Runtime,
     tasks::ThreadPool,
     utils::{Error, GlobalScope},
-    Instance, JsRuntime, SpawnOptions,
+    Instance, JsRuntime, SpawnOptions, options::CommonOptions,
 };
 
 /// A package from the Wasmer registry.
@@ -373,7 +373,7 @@ pub(crate) async fn configure_runner(
     }
 }
 
-fn setup_tty(options: &SpawnOptions, tty_options: TtyOptions) -> TerminalMode {
+pub(crate) fn setup_tty(options: &CommonOptions, tty_options: TtyOptions) -> TerminalMode {
     // Handle the simple (non-interactive) case first.
     if let Some(stdin) = options.read_stdin() {
         return TerminalMode::NonInteractive {
@@ -478,7 +478,7 @@ fn copy_stdin_to_tty(
 }
 
 #[derive(Debug)]
-enum TerminalMode {
+pub(crate) enum TerminalMode {
     Interactive {
         /// The [`Pipe`] used as the WASIX instance's stdin.
         stdin_pipe: Pipe,

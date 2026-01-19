@@ -35,7 +35,7 @@ pub(crate) fn to_scheduler_message(
         ..
     } = task;
 
-    let module_bytes = module.serialize().unwrap();
+    let module_bytes = module.serialize().unwrap_or_default();
 
     let (memory_ty, memory, run_type) = match spawn_type {
         wasmer_wasix::runtime::SpawnType::CreateMemory => {
@@ -143,7 +143,7 @@ fn copy_memory(memory: &JsValue, ty: MemoryType) -> Result<JsValue, WasiThreadEr
     let src_view = js_sys::Uint8Array::new(&src_buffer);
 
     let pages = ((src_size as usize - 1) / wasmer::WASM_PAGE_SIZE) + 1;
-    new_memory.grow(pages as u32);
+    new_memory.grow(pages as u32 - ty.minimum.0);
 
     let dst_buffer = new_memory.buffer();
     let dst_view = js_sys::Uint8Array::new(&dst_buffer);
@@ -294,6 +294,8 @@ fn build_ctx_and_store(
 ) -> Option<(WasiFunctionEnv, Store)> {
     // Compile the web assembly module
     let module: Module = (module, module_bytes).into();
+
+    //web_sys::console::warn_3(&"task_wasm".into(), &format!("{:?}", run_type).into(), &memory);
 
     // Make a fake store which will hold the memory we just transferred
     let mut temp_store = env.runtime().new_store();

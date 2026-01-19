@@ -7,6 +7,7 @@ use wasm_bindgen::{prelude::wasm_bindgen, JsCast, JsValue, UnwrapThrowExt};
 use wasmer_wasix::WasiEnvBuilder;
 
 use crate::{runtime::Runtime, utils::Error, Directory, DirectoryInit, JsRuntime, StringOrBytes};
+use crate::wasmer::{setup_tty, TerminalMode};
 
 #[wasm_bindgen]
 extern "C" {
@@ -182,6 +183,7 @@ impl RunOptions {
     pub(crate) fn configure_builder(
         &self,
         builder: &mut WasiEnvBuilder,
+        runtime: Arc<Runtime>
     ) -> Result<
         (
             Option<web_sys::WritableStream>,
@@ -198,24 +200,36 @@ impl RunOptions {
             builder.add_env(key, value);
         }
 
-        let stdin = match self.read_stdin() {
-            Some(stdin) => {
-                let f = virtual_fs::StaticFile::new(stdin);
-                builder.set_stdin(Box::new(f));
-                None
-            }
-            None => {
-                let (f, stdin) = crate::streams::input_pipe();
-                builder.set_stdin(Box::new(f));
-                Some(stdin)
-            }
-        };
+        if let Some(cwd) = self.parse_cwd()? {
+            builder.set_current_dir(cwd);
+        }
 
-        let (stdout_file, stdout) = crate::streams::output_pipe();
-        builder.set_stdout(Box::new(stdout_file));
+        let (stderr_pipe, stderr_stream) = crate::streams::output_pipe();
 
-        let (stderr_file, stderr) = crate::streams::output_pipe();
-        builder.set_stderr(Box::new(stderr_file));
+        let (stdin, stdout, stderr) =
+            match setup_tty(&self, runtime.tty_options().clone()) {
+                TerminalMode::Interactive {
+                    stdin_pipe, stdout_pipe,
+                    stdout_stream, stdin_stream
+                } => {
+                    tracing::debug!("Setting up interactive TTY");
+                    builder.set_stdin(Box::new(stdin_pipe));
+                    // tie stdout and stderr to the *same pipe*  (stderr will be dummy)
+                    builder.set_stdout(Box::new(stdout_pipe.clone()));
+                    builder.set_stderr(Box::new(stdout_pipe));
+                    (Some(stdin_stream), stdout_stream, stderr_stream)
+                }
+                TerminalMode::NonInteractive { stdin } => {
+                    tracing::debug!("Setting up non-interactive stdin/stdout");
+                    let (stdout_pipe, stdout_stream) = crate::streams::output_pipe();
+                    builder.set_stdin(Box::new(stdin));
+                    builder.set_stdout(Box::new(stdout_pipe));
+                    builder.set_stderr(Box::new(stderr_pipe));
+                    (None, stdout_stream, stderr_stream)
+                }
+            };
+
+        builder.set_runtime(runtime);
 
         let fs = self.filesystem()?;
         builder.set_fs(Box::new(fs));

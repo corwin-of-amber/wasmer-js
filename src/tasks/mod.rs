@@ -31,7 +31,7 @@
 //! [`Worker`]: thread_pool_worker::ThreadPoolWorker
 //! [`Scheduler`]: scheduler::Scheduler
 
-mod interop;
+pub(crate) mod interop;
 mod post_message_payload;
 mod scheduler;
 mod scheduler_message;

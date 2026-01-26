@@ -271,7 +271,6 @@ impl FileSystem for Directory {
 
     #[tracing::instrument(level = "trace", skip(self))]
     fn metadata(&self, path: &std::path::Path) -> virtual_fs::Result<virtual_fs::Metadata> {
-        self.1.write().unwrap().trigger_populate();
         self.0.metadata(path)
     }
 
@@ -281,6 +280,7 @@ impl FileSystem for Directory {
     }
 
     fn new_open_options(&self) -> virtual_fs::OpenOptions<'_> {
+        self.1.write().unwrap().trigger_populate();
         virtual_fs::OpenOptions::new(self)
     }
 

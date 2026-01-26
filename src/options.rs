@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use anyhow::Context;
 use js_sys::Array;
-use virtual_fs::TmpFileSystem;
+use virtual_fs::{FileSystem, TmpFileSystem};
 use wasm_bindgen::{prelude::wasm_bindgen, JsCast, JsValue, UnwrapThrowExt};
 use wasmer_wasix::WasiEnvBuilder;
 
@@ -231,27 +231,31 @@ impl RunOptions {
 
         builder.set_runtime(runtime);
 
-        let fs = self.filesystem()?;
-        builder.set_fs(Box::new(fs));
+        builder.set_fs(self.filesystem()?);
         builder.add_preopen_dir("/")?;
 
         Ok((stdin, stdout, stderr))
     }
 
-    pub(crate) fn filesystem(&self) -> Result<TmpFileSystem, Error> {
-        let root = TmpFileSystem::new();
+    pub(crate) fn filesystem(&self) -> Result<Box<dyn FileSystem>, Error> {
+        let mountpoints = self.mounted_directories()?;
+        let mut root = mountpoints.iter().find(|(dest, _)| dest == "/")
+            .map(|(_, d)| Box::new(d.clone()) as Box<dyn FileSystem>)
+            .unwrap_or_else(|| Box::new(TmpFileSystem::new()));
 
         for (dest, fs) in self.mounted_directories()? {
+            if dest == "/" { continue; }
             tracing::trace!(%dest, ?fs, "Mounting directory");
 
-            let fs = Arc::new(fs) as Arc<_>;
-            root.mount(dest.as_str().into(), &fs, "/".into())
+            let dest_path = std::path::Path::new(&dest);
+            FileSystem::mount(&mut root, String::from(""),
+                              &dest_path, Box::new(fs))
                 .with_context(|| format!("Unable to mount to \"{dest}\""))?;
         }
 
         tracing::trace!(?root, "Initialized the filesystem");
 
-        Ok(root)
+        Ok(Box::new(root))
     }
 }
 

@@ -5,3 +5,4 @@ dist/
 *.log
 pkg/
 .env
+/vendor

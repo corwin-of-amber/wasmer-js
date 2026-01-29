@@ -2,12 +2,10 @@
 # The nightly toolchain is needed so the generated wasm generates
 # a shared memory (via +atomics) instead of a non-shared one (default behavior)
 #
-# HOWEVER, notice this PR and related issue:
-#  * https://github.com/rust-lang/rust/pull/147225
-#  * https://github.com/wasm-bindgen/wasm-bindgen/issues/4727
+# Notice that since 2025-10-01, shared memory is not turned on automatically
+# (see https://github.com/rust-lang/rust/pull/147225).
+# It has to be enabled separately in `.cargo/config.toml`.
 #
-# Might be better to use `RUSTC_FLAGS` instead.
-#
-channel = "nightly-2025-09-23"
+channel = "nightly-2026-01-28"
 targets = ["wasm32-unknown-unknown", "wasm32-wasi"]
 components = ["rust-src", "rustfmt", "clippy"]

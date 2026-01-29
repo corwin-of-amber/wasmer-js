@@ -21,6 +21,7 @@ mod tasks;
 mod utils;
 mod wasmer;
 mod ws;
+mod tty;
 
 use std::sync::Mutex;
 

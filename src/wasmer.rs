@@ -1,12 +1,10 @@
 use std::{str::FromStr, sync::Arc};
-
 use anyhow::Context;
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use futures::{channel::oneshot, TryStreamExt};
 use js_sys::{JsString, Reflect, Uint8Array};
 use sha2::Digest;
-use tracing::Instrument;
-use virtual_fs::{AsyncReadExt, Pipe, RootFileSystemBuilder};
+use virtual_fs::{Pipe, RootFileSystemBuilder};
 use wasm_bindgen::{prelude::wasm_bindgen, JsValue, UnwrapThrowExt};
 use wasmer_config::{
     hash::Sha256Hash,
@@ -30,6 +28,7 @@ use crate::{
     tasks::ThreadPool,
     utils::{Error, GlobalScope},
     Instance, JsRuntime, SpawnOptions, options::CommonOptions,
+    tty::TtyDevice
 };
 
 /// A package from the Wasmer registry.
@@ -406,83 +405,24 @@ pub(crate) fn setup_tty(options: &CommonOptions, tty_options: TtyOptions) -> Ter
         tty_options,
     );
 
-    // FIXME: why would closing a clone actually close anything at all? Did the previous
-    // implementation of pipe do things differently?
-
-    // Because the TTY is manually copying between pipes, we need to make
-    // sure the stdin pipe passed to the runtime is closed when the user
-    // closes their end.
-    let cleanup = {
-        let mut stdin_pipe = stdin_pipe.clone();
-        move || {
-            tracing::debug!("Closing stdin");
-            stdin_pipe.close();
-        }
-    };
-
-    // Use the JS event loop to drive our manual user->tty copy
-    wasm_bindgen_futures::spawn_local(
-        copy_stdin_to_tty(u_stdin_rx, tty, cleanup)
-            .in_current_span()
-            .instrument(tracing::debug_span!("tty")),
-    );
+    let ttyin = TtyDevice::new(stdin_pipe);
+    ttyin.attach(u_stdin_rx, tty);
 
     TerminalMode::Interactive {
-        stdin_pipe,
+        stdin_pipe: ttyin,
         stdout_pipe,
         stdout_stream,
         stdin_stream,
     }
 }
 
-fn copy_stdin_to_tty(
-    mut u_stdin_rx: Pipe,
-    mut tty: Tty,
-    cleanup: impl FnOnce(),
-) -> impl std::future::Future<Output = ()> {
-    /// A RAII guard used to make sure the cleanup function always gets called.
-    struct CleanupGuard<F: FnOnce()>(Option<F>);
-
-    impl<F: FnOnce()> Drop for CleanupGuard<F> {
-        fn drop(&mut self) {
-            let cb = self.0.take().unwrap();
-            cb();
-        }
-    }
-
-    async move {
-        let _guard = CleanupGuard(Some(cleanup));
-        let mut buffer = BytesMut::new();
-
-        loop {
-            match u_stdin_rx.read_buf(&mut buffer).await {
-                Ok(0) => {
-                    break;
-                }
-                Ok(_) => {
-                    // PERF: It'd be nice if we didn't need to do a copy here.
-                    let data = buffer.to_vec();
-                    tty = tty.on_event(wasmer_wasix::os::InputEvent::Raw(data)).await;
-                    buffer.clear();
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        error = &e as &dyn std::error::Error,
-                        "Error reading stdin and copying it to the tty"
-                    );
-                    break;
-                }
-            }
-        }
-    }
-}
 
 #[derive(Debug)]
 pub(crate) enum TerminalMode {
     Interactive {
-        /// The [`Pipe`] used as the WASIX instance's stdin.
-        stdin_pipe: Pipe,
-        /// The [`Pipe`] used as the WASIX instance's stdout.
+        /// The [`VirtualFile`] used as the WASIX instance's stdin.
+        stdin_pipe: TtyDevice,
+        /// The [`VirtualFile`] used as the WASIX instance's stdout.
         stdout_pipe: Pipe,
         /// The [`ReadableStream`] our JavaScript caller will read stdout from.
         stdout_stream: ReadableStream,

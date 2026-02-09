@@ -12,16 +12,18 @@ use event::AsyncEvent;
 
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TtyDevice {
     pub rx: Pipe,
+    pub tx: Pipe,
     pub eof: Arc<AsyncEvent>,  /* should be private when copy_to_stdin is moved here */
 }
 
 impl TtyDevice {
-    pub fn new(rx: Pipe) -> Self {
+    pub fn new(rx: Pipe, tx: Pipe) -> Self {
         Self {
             rx,
+            tx,
             eof: Arc::new(AsyncEvent::new())
         }
     }
@@ -75,10 +77,7 @@ pub(crate) fn copy_stdin_to_tty(
                 }
                 Ok(_) => {
                     if buffer[..] == [4] { eof.set(); }  /* it would probably be better for this to be handled by `Tty::on_ctrl_d` */
-                    // PERF: It'd be nice if we didn't need to do a copy here.
-                    //let data = buffer.to_vec();
                     tty = tty.on_event(wasmer_wasix::os::InputEvent::Raw(buffer.split().into())).await;
-                    //buffer.clear();
                 }
                 Err(e) => {
                     tracing::warn!(
@@ -110,17 +109,19 @@ impl virtual_fs::AsyncRead for TtyDevice {
 }
 
 impl virtual_fs::AsyncWrite for TtyDevice {
-    fn poll_write(self: Pin<&mut Self>, _: &mut std::task::Context<'_>, _: &[u8]) -> Poll<Result<usize, std::io::Error>> { todo!() }
-    fn poll_flush(self: Pin<&mut Self>, _: &mut std::task::Context<'_>) -> Poll<Result<(), std::io::Error>> {
+    fn poll_write(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>, buf: &[u8]) -> Poll<Result<usize, std::io::Error>> {
+        Pin::new(&mut self.tx).poll_write(cx, buf)
+    }
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Result<(), std::io::Error>> {
         // `flush` is called on stdin when current process ends.
         // this, according to POSIX, should reset the eof status of the TTY.
         // note: if TtyDevice is used as both stdin and stderr, perhaps stdin does not have to
         // be flushed (which is a bit awkward as this is an `AsyncWrite` method)
         self.eof.reset();
-        Poll::Ready(Ok(()))
+        Pin::new(&mut self.tx).poll_flush(cx)
     }
-    fn poll_shutdown(self: Pin<&mut Self>, _: &mut std::task::Context<'_>) -> Poll<Result<(), std::io::Error>> {
-        todo!()
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Result<(), std::io::Error>> {
+        Pin::new(&mut self.tx).poll_shutdown(cx)
     }
 }
 
@@ -138,8 +139,11 @@ impl virtual_fs::VirtualFile for TtyDevice {
     }
 
     fn poll_read_ready(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<std::io::Result<usize>> {
-        if self.eof.is_set() { self.eof.reset(); return Poll::Ready(Ok(0)); }
+        tracing::trace!("poll_read_ready");
+        if self.eof.is_set() { return Poll::Ready(Ok(0)); }
         Pin::new(&mut self.rx).poll_read_ready(cx)
     }
-    fn poll_write_ready(self: Pin<&mut Self>, _: &mut std::task::Context<'_>) -> Poll<std::io::Result<usize>> { todo!() }
+    fn poll_write_ready(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.tx).poll_write_ready(cx)
+    }
 }

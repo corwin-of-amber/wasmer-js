@@ -405,12 +405,12 @@ pub(crate) fn setup_tty(options: &CommonOptions, tty_options: TtyOptions) -> Ter
         tty_options,
     );
 
-    let ttyin = TtyDevice::new(stdin_pipe);
+    let ttyin = TtyDevice::new(stdin_pipe, stdout_pipe);
     ttyin.attach(u_stdin_rx, tty);
 
     TerminalMode::Interactive {
-        stdin_pipe: ttyin,
-        stdout_pipe,
+        stdin_pipe: ttyin.clone(),
+        stdout_pipe: ttyin,
         stdout_stream,
         stdin_stream,
     }
@@ -423,7 +423,7 @@ pub(crate) enum TerminalMode {
         /// The [`VirtualFile`] used as the WASIX instance's stdin.
         stdin_pipe: TtyDevice,
         /// The [`VirtualFile`] used as the WASIX instance's stdout.
-        stdout_pipe: Pipe,
+        stdout_pipe: TtyDevice,
         /// The [`ReadableStream`] our JavaScript caller will read stdout from.
         stdout_stream: ReadableStream,
         /// The [`WritableStream`] our JavaScript caller will write stdin to.

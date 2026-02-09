@@ -1,10 +1,9 @@
 use futures::channel::oneshot;
 use std::sync::Arc;
 use wasm_bindgen::{prelude::wasm_bindgen, JsCast};
-use wasmer::{RuntimeError, Store};
-use wasmer_wasix::{Runtime as _, WasiEnv};
+use wasmer::RuntimeError;
+use wasmer_wasix::{WasiEnv, WasiError, WasiRuntimeError};
 use wasmer_wasix::runtime::module_cache::HashedModuleData;
-use wasmer_wasix::runtime::task_manager::TaskWasmRunProperties;
 use crate::{instance::ExitCondition, utils::Error, Instance, RunOptions};
 
 const DEFAULT_PROGRAM_NAME: &str = "wasm";
@@ -44,32 +43,18 @@ async fn run_wasix_inner(wasm_module: WasmModule, config: RunOptions) -> Result<
 
     let module: wasmer::Module = wasm_module.to_module(&*runtime).await?;
 
-    // Note: The WasiEnvBuilder::run() method blocks, so we need to run it on
-    // the thread pool.
-    let tasks = runtime.task_manager().clone();
-    tasks.spawn_with_module(
-        module,
-        Box::new(move |module| {
-            let _span = tracing::debug_span!("run").entered();
-            let mut store = Store::default();
-            let result =
-                match builder.instantiate(module, &mut store) {
-                    Ok((_, fenv)) => {
-                        crate::fs::hooks::Hooks::initiated(fenv.data(&store));
-                        wasmer_wasix::bin_factory::run_exec(TaskWasmRunProperties {
-                            ctx: fenv,
-                            store: store,
-                            recycle: None,
-                            trigger_result: None
-                        });
-                        Ok(())
-                    },
-                    Err(e) => Err(anyhow::Error::new(e))
-                };
+    let env = builder.build()?;
+    let runtime = env.runtime.clone();
 
-            let _ = exit_code_tx.send(ExitCondition::from_result(result));
-        }),
-    )?;
+    let mut join_handle = wasmer_wasix::bin_factory::spawn_exec_module(module, env, &runtime)?;
+
+    wasm_bindgen_futures::spawn_local(async move {
+        let result = join_handle.wait_finished().await
+            .and_then(|ec| if ec.is_success() { Ok(()) }
+                           else { Err(Arc::new(WasiRuntimeError::Wasi(WasiError::Exit(ec)))) })
+            .map_err(anyhow::Error::new);
+        _ = exit_code_tx.send(ExitCondition::from_result(result));
+    });
 
     Ok(Instance {
         stdin,

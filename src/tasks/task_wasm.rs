@@ -227,6 +227,8 @@ impl SpawnWasm {
             self.result = Some((trigger.run)().await);
         }
 
+        crate::fs::hooks::Hooks::trigger_initiated(&self.env);
+
         ReadySpawnWasm(self)
     }
 }

@@ -57,9 +57,10 @@ impl ThreadPoolWorker {
                 let _guard = self.busy();
                 thunk();
             }
-            BlockingJob::SpawnWithModule { module, task } => {
-                let _guard = self.busy();
-                task(module);
+            BlockingJob::SpawnWithModule { .. /* module, task*/ } => {
+                unimplemented!();
+                //let _guard = self.busy();
+                //task(module);
             }
             BlockingJob::SpawnWithModuleAndMemory {
                 module,

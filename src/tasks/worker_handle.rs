@@ -12,7 +12,7 @@ use crate::fs::hooks::Hooks;
 ///
 /// This provides a structured way to communicate with the worker and will
 /// automatically call [`web_sys::Worker::terminate()`] when dropped.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct WorkerHandle {
     id: u32,
     inner: web_sys::Worker,

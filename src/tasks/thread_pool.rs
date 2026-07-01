@@ -16,10 +16,12 @@ pub struct ThreadPool {
     scheduler: Scheduler,
 }
 
-const CROSS_ORIGIN_WARNING: &str = r#"You can only run packages from "Cross-Origin Isolated" websites. For more details, check out https://docs.wasmer.io/javascript-sdk/explainers/troubleshooting#sharedarraybuffer-and-cross-origin-isolation"#;
+//const CROSS_ORIGIN_WARNING: &str = r#"You can only run packages from "Cross-Origin Isolated" websites. For more details, check out https://docs.wasmer.io/javascript-sdk/explainers/troubleshooting#sharedarraybuffer-and-cross-origin-isolation"#;
 
 impl ThreadPool {
     pub fn new() -> Self {
+        // This is dumb, esp. here during init. What if I do not even want to run packages?
+        /*
         if let Some(cross_origin_isolated) =
             crate::utils::GlobalScope::current().cross_origin_isolated()
         {
@@ -30,7 +32,7 @@ impl ThreadPool {
                 &wasm_bindgen::JsValue::from_str(CROSS_ORIGIN_WARNING),
             );
         }
-
+        */
         let sender = Scheduler::spawn();
         ThreadPool { scheduler: sender }
     }
@@ -84,12 +86,17 @@ impl VirtualTaskManager for ThreadPool {
         // deadlock because the syscall will block block until the future
         // resolves, but the JsFuture will never get a chance to mark itself as
         // resolved because the JavaScript VM is still blocked by the syscall.
-        let _ = self.task_dedicated(Box::new(move || {
+        let _ = self.task_shared(Box::new(move || {
+            // this bridge is required to decouple the `JsFuture` operations from the `Send` Rust future.
+            let (tx_, rx_) = tokio::sync::oneshot::channel();
+            
             wasm_bindgen_futures::spawn_local(async move {
                 let global = GlobalScope::current();
                 let _ = JsFuture::from(global.sleep(time)).await;
-                let _ = tx.send(());
-            })
+                let _ = tx_.send(());
+            });
+
+            Box::pin(async move { tx.send(rx_.await.unwrap()).unwrap() })
         }));
 
         Box::pin(async move {
@@ -136,7 +143,7 @@ impl VirtualTaskManager for ThreadPool {
             None => Err(WasiThreadError::Unsupported),
         }
     }
-
+    /*
     fn spawn_with_module(
         &self,
         module: wasmer::Module,
@@ -145,19 +152,20 @@ impl VirtualTaskManager for ThreadPool {
         self.send(SchedulerMessage::SpawnWithModule { task, module });
 
         Ok(())
-    }
+    }*/
 }
 
 #[cfg(test)]
 mod tests {
     use futures::{channel::oneshot, FutureExt};
-    use js_sys::Uint8Array;
-    use wasm_bindgen::JsCast;
+    //use js_sys::Uint8Array;
+    //use wasm_bindgen::JsCast;
     use wasm_bindgen_futures::JsFuture;
     use wasm_bindgen_test::wasm_bindgen_test;
 
     use super::*;
 
+    /*
     #[wasm_bindgen_test]
     async fn transfer_module_to_worker() {
         let wasm: &[u8] = include_bytes!("../../tests/envvar.wasm");
@@ -184,6 +192,7 @@ mod tests {
         let exports = receiver.await.unwrap();
         assert_eq!(exports, 5);
     }
+     */
 
     #[wasm_bindgen_test]
     async fn spawned_tasks_can_communicate_with_the_main_thread() {

@@ -92,6 +92,7 @@ impl GlobalScope {
         }
     }
 
+    #[allow(dead_code)]
     pub fn cross_origin_isolated(&self) -> Option<bool> {
         let obj = self.as_object();
         js_sys::Reflect::get(obj, &JsValue::from_str("crossOriginIsolated"))

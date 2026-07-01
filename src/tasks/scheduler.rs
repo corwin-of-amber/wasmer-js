@@ -132,6 +132,8 @@ struct SchedulerState {
     /// Workers that are currently blocked on synchronous operations and can't
     /// receive work at this time.
     busy: VecDeque<WorkerHandle>,
+    /// Workers that are doing async work and therefore must not block
+    asyn: VecDeque<WorkerHandle>,
     /// A channel that can be used to send messages to this scheduler.
     mailbox: Scheduler,
     cached_modules: BTreeMap<ModuleHash, js_sys::WebAssembly::Module>,
@@ -142,6 +144,7 @@ impl SchedulerState {
         SchedulerState {
             idle: VecDeque::new(),
             busy: VecDeque::new(),
+            asyn: VecDeque::new(),
             mailbox,
             cached_modules: BTreeMap::new(),
         }
@@ -226,23 +229,27 @@ impl SchedulerState {
     /// Send a task to one of the worker threads, preferring workers that aren't
     /// running synchronous work.
     fn post_message(&mut self, msg: PostMessagePayload) -> Result<(), Error> {
-        let worker = self.next_available_worker()?;
-
         let would_block = msg.would_block();
+        let worker = self.next_available_worker(would_block)?;
+        if !would_block {
+            self.asyn.push_back(worker.clone());
+        }
+
         worker
             .send(msg)
             .with_context(|| format!("Unable to send a message to worker {}", worker.id()))?;
 
-        if would_block {
-            self.busy.push_back(worker);
-        } else {
-            self.idle.push_back(worker);
-        }
+        self.busy.push_back(worker);
 
         Ok(())
     }
 
-    fn next_available_worker(&mut self) -> Result<WorkerHandle, Error> {
+    fn next_available_worker(&mut self, would_block: bool) -> Result<WorkerHandle, Error> {
+        if !would_block {
+            if let Some(worker) = self.asyn.front() {
+                return Ok(worker.clone());
+            }
+        }
         // First, try to send the message to an idle worker
         if let Some(worker) = self.idle.pop_front() {
             tracing::trace!(

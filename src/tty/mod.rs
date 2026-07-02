@@ -76,8 +76,8 @@ pub(crate) fn copy_stdin_to_tty(
                     break;
                 }
                 Ok(_) => {
-                    if buffer[..] == [4] { eof.set(); }  /* it would probably be better for this to be handled by `Tty::on_ctrl_d` */
                     tty = tty.on_event(wasmer_wasix::os::InputEvent::Raw(buffer.split().into())).await;
+                    if tty.eof_take() { eof.set(); }
                 }
                 Err(e) => {
                     tracing::warn!(

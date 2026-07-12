@@ -237,25 +237,28 @@ impl RunOptions {
         Ok((stdin, stdout, stderr))
     }
 
-    pub(crate) fn filesystem(&self) -> Result<Box<dyn FileSystem>, Error> {
+    pub(crate) fn filesystem(&self) -> Result<Arc<dyn FileSystem + Send + Sync>, Error> {
         let mountpoints = self.mounted_directories()?;
         let mut root = mountpoints.iter().find(|(dest, _)| dest == "/")
-            .map(|(_, d)| Box::new(d.clone()) as Box<dyn FileSystem>)
-            .unwrap_or_else(|| Box::new(TmpFileSystem::new()));
+            .map(|(_, d)| Arc::new(d.clone()) as Arc<dyn FileSystem>)
+            .unwrap_or_else(|| Arc::new(TmpFileSystem::new()));
 
         for (dest, fs) in self.mounted_directories()? {
             if dest == "/" { continue; }
             tracing::trace!(%dest, ?fs, "Mounting directory");
 
             let dest_path = std::path::Path::new(&dest);
+            todo!();
+            /*
             FileSystem::mount(&mut root, String::from(""),
                               &dest_path, Box::new(fs))
                 .with_context(|| format!("Unable to mount to \"{dest}\""))?;
+             */
         }
 
         tracing::trace!(?root, "Initialized the filesystem");
 
-        Ok(Box::new(root))
+        Ok(Arc::new(root))
     }
 }
 

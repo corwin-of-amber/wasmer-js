@@ -20,18 +20,15 @@ use wasmer_wasix::{
 use crate::tasks::SchedulerMessage;
 
 pub(crate) fn to_scheduler_message(
-    task: TaskWasm<'_>,
+    task: TaskWasm,
 ) -> Result<SchedulerMessage, WasiThreadError> {
     let TaskWasm {
-        run,
+        callbacks,
         env,
         module,
         spawn_type,
-        trigger,
         update_layout,
-        recycle,
         globals,
-        pre_run,
         ..
     } = task;
 
@@ -44,6 +41,7 @@ pub(crate) fn to_scheduler_message(
         wasmer_wasix::runtime::SpawnType::CreateMemoryOfType(ty) => {
             (Some(ty), None, WasmMemoryType::CreateMemoryOfType(ty))
         }
+        /*
         wasmer_wasix::runtime::SpawnType::CopyMemory(m, store) => {
             let memory_ty = m.ty(&store);
             let memory = m.as_jsvalue(&store);
@@ -60,8 +58,10 @@ pub(crate) fn to_scheduler_message(
                 Some(memory),
                 WasmMemoryType::ShareMemory(memory_ty),
             )
-        }
-        wasmer_wasix::runtime::SpawnType::ShareMemory(m, store) => {
+        } */
+        wasmer_wasix::runtime::SpawnType::AttachMemory(m) => {
+            let mut store = Store::default();
+            let m = m.attach(&mut store);
             let ty = m.ty(&store);
             let memory = m.as_jsvalue(&store);
             (
@@ -70,7 +70,7 @@ pub(crate) fn to_scheduler_message(
                 WasmMemoryType::ShareMemory(m.ty(&store)),
             )
         },
-        wasmer_wasix::runtime::SpawnType::NewLinkerInstanceGroup(_, _, _) => todo!()
+        wasmer_wasix::runtime::SpawnType::NewLinkerInstanceGroup(..) => todo!()
     };
 
     let memory = memory.map(|m| {
@@ -86,19 +86,19 @@ pub(crate) fn to_scheduler_message(
 
     let store_snapshot = globals.clone();
     let spawn_wasm = SpawnWasm {
-        trigger: trigger.map(|trigger| WasmRunTrigger {
+        trigger: callbacks.trigger.map(|trigger| WasmRunTrigger {
             run: trigger,
             memory_ty: memory_ty.expect("triggers must have the a known memory type"),
             env: env.clone(),
         }),
-        run,
-        pre_run,
+        run: callbacks.run,
+        pre_run: callbacks.pre_run,
         run_type,
         env,
         module_bytes,
         update_layout,
         result: None,
-        recycle,
+        recycle: callbacks.recycle,
         store_snapshot,
     };
 
@@ -312,7 +312,7 @@ fn build_ctx_and_store(
                     return None;
                 }
             };
-            SpawnMemoryTypeOrStore::StoreAndMemory(temp_store, Some(memory))
+            SpawnMemoryTypeOrStore::StoreAndMemory(temp_store, memory)
         }
     };
 

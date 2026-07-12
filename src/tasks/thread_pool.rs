@@ -96,7 +96,7 @@ impl VirtualTaskManager for ThreadPool {
                 let _ = tx_.send(());
             });
 
-            Box::pin(async move { tx.send(rx_.await.unwrap()).unwrap() })
+            Box::pin(async move { let _ = tx.send(rx_.await.unwrap()); })
         }));
 
         Box::pin(async move {
@@ -115,10 +115,10 @@ impl VirtualTaskManager for ThreadPool {
         self.spawn(Box::new(move || Box::pin(async move { task().await })))
     }
 
-    /// Starts an asynchronous task will will run on a dedicated thread
+    /// Starts an asynchronous task that will run on a dedicated thread
     /// pulled from the worker pool that has a stateful thread local variable
     /// It is ok for this task to block execution and any async futures within its scope
-    fn task_wasm(&self, task: TaskWasm<'_>) -> Result<(), WasiThreadError> {
+    fn task_wasm(&self, task: TaskWasm) -> Result<(), WasiThreadError> {
         let msg = crate::tasks::task_wasm::to_scheduler_message(task)?;
         self.send(msg);
         Ok(())

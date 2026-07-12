@@ -47,7 +47,7 @@ use crate::{
 ///     throw new Error(`Python exited with ${code}: ${stderr}`);
 /// }
 /// ```
-#[derive(Debug, Clone, wasm_bindgen_derive::TryFromJsValue)]
+#[derive(Debug, Clone)]
 #[wasm_bindgen]
 pub struct Wasmer {
     /// The package's entrypoint.
@@ -62,7 +62,7 @@ pub struct Wasmer {
     pub pkg: Option<UserPackageDefinition>,
 }
 
-#[derive(Debug, Clone, wasm_bindgen_derive::TryFromJsValue)]
+#[derive(Debug, Clone)]
 #[wasm_bindgen]
 pub struct UserPackageDefinition {
     pub(crate) manifest: wasmer_config::package::Manifest,
@@ -161,7 +161,7 @@ impl Wasmer {
 
     fn from_wasm(wasm: Vec<u8>, runtime: Option<OptionalRuntime>) -> Result<Self, Error> {
         let webc_fs = RootFileSystemBuilder::default().build();
-        let hash = ModuleHash::xxhash(&wasm);
+        let hash = ModuleHash::new(&wasm);
         let metadata = MetadataCommand {
             runner: "wasi".to_string(),
             annotations: IndexMap::new(),
@@ -171,7 +171,7 @@ impl Wasmer {
             package_ids: vec![],
             hash: hash.clone().into(),
             uses: vec![],
-            webc_fs: Arc::new(webc_fs),
+            package_mounts: todo!(), //Arc::new(webc_fs),
             when_cached: None,
             file_system_memory_footprint: 0,
             entrypoint_cmd: Some("entrypoint".to_string()),
@@ -181,7 +181,8 @@ impl Wasmer {
                 wasm.into(),
                 hash,
                 None,
-                SuggestedCompilerOptimizations { pass_params: None }
+                todo!(),
+                todo!(),
             )],
             additional_host_mapped_directories: vec![],
         };

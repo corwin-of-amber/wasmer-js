@@ -2,6 +2,7 @@ use derivative::Derivative;
 use js_sys::WebAssembly;
 use wasm_bindgen::JsValue;
 use wasmer_types::ModuleHash;
+use wasmer_wasix::runtime::resolver::WebcHash;
 
 use crate::tasks::{
     interop::Serializer, task_wasm::SpawnWasm, AsyncTask, BlockingModuleTask, BlockingTask,
@@ -128,11 +129,7 @@ impl PostMessagePayload {
             consts::TYPE_CACHE_MODULE => {
                 let module = de.js(consts::MODULE)?;
                 let hash = de.string(consts::MODULE_HASH)?;
-                let hash = if let Ok(hash) = ModuleHash::sha256_parse_hex(&hash) {
-                    hash
-                } else {
-                    ModuleHash::xxhash_parse_hex(&hash)?
-                };
+                let hash = ModuleHash::from_bytes(WebcHash::parse_hex(&hash)?.as_bytes());
 
                 Ok(PostMessagePayload::Notification(
                     Notification::CacheModule { hash, module },

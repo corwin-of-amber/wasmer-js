@@ -189,7 +189,9 @@ impl Directory {
     pub fn mount_dir(&self, mut path: String, dir: &Directory) -> Result<(), Error> {
         slashify(&mut path);
 
-        FileSystem::mount(self, "/".into(), path.as_ref(), Box::new(dir.clone()))?;
+        if let Some(mfs) = self.0.downcast_ref::<virtual_fs::MountFileSystem>() {
+            mfs.mount(path, Arc::new(dir.clone()))?;
+        }
 
         Ok(())
     }
@@ -295,11 +297,12 @@ impl FileSystem for Directory {
         self.0.symlink_metadata(path)
     }
 
+    /*
     #[tracing::instrument(level = "trace", skip(self))]
     fn mount(&self, name: String, path: &Path, fs: Box<dyn FileSystem + Send + Sync>)
             -> virtual_fs::Result<()> {
         self.0.mount(name, path, fs)
-    }
+    }*/
 }
 
 impl virtual_fs::FileOpener for Directory {

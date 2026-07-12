@@ -31,7 +31,7 @@ tracing = { version = "0.1", features = ["log", "release_max_level_debug"] }
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 url = "2.4.0"
 wasm-bindgen = "0.2.92"
-wasm-bindgen-derive = "0.2.1"
+wasm-bindgen-derive = "0.4.0"
 wasm-bindgen-futures = "0.4.40"
 wasm-bindgen-test = "0.3.56"
 # virtual-fs = { version = "0.17.0", default-features = false }
@@ -51,9 +51,9 @@ wasm-bindgen-test = "0.3.56"
 #     "js",
 #     "js-default",
 # ] }
-webc = "10.0.0"
+webc = "=12.0.0"
 
-virtual-fs = { path = "../wasmer/lib/virtual-fs", default-features = false }
+virtual-fs = { path = "../wasmer/lib/virtual-fs", default-features = false, features = ["js"] }
 virtual-net = { path = "../wasmer/lib/virtual-net", default-features = false, features = [
     "remote",
 ] }

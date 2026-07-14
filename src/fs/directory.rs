@@ -55,6 +55,7 @@ impl Directory {
         let ty = JsValue::from_str("type");
         let file = JsValue::from_str("file");
         let dir = JsValue::from_str("dir");
+        let symlink = JsValue::from_str("symlink");
         let unknown = JsValue::from_str("unknown");
         let name = JsValue::from_str("name");
 
@@ -63,8 +64,9 @@ impl Directory {
 
             let entry_name = entry.file_name().to_string_lossy().to_string();
             let entry_type = match entry.file_type() {
-                Ok(FileType { dir: true, .. }) => &dir,
-                Ok(FileType { file: true, .. }) => &file,
+                Ok(ft) if ft.is_dir() => &dir,
+                Ok(ft) if ft.is_file() => &file,
+                Ok(ft) if ft.is_symlink() => &symlink,
                 _ => &unknown,
             };
 
@@ -196,19 +198,14 @@ impl Directory {
         Ok(())
     }
 
-    /// A soft link is almost like a symlink, except it must be an absolute path
-    /// from this Directory's root.
-    #[wasm_bindgen(js_name = "softLink")]
-    pub fn soft_link(&self, mut to_path: String, mut from_path: String) -> Result<(), Error> {
-        if let Some(fs) = self.0.downcast_ref::<virtual_fs::mem_fs::FileSystem>() {
-            slashify(&mut to_path);
-            slashify(&mut from_path);
+    #[wasm_bindgen(js_name = "createSymlink")]
+    pub fn create_symlink(&self, mut source: String, mut target: String) -> Result<(), Error> {
+        slashify(&mut source);
+        slashify(&mut target);
 
-            fs.insert_arc_file_at(from_path.into(), Arc::new(self.clone()), to_path.into())?;
+        FileSystem::create_symlink(self, source.as_ref(), target.as_ref())?;
 
-            Ok(())
-        }
-        else { Err(Error::js("cannot create soft link: not a memfs")) }
+        Ok(())
     }
 }
 
@@ -255,6 +252,11 @@ impl FileSystem for Directory {
     #[tracing::instrument(level = "trace", skip(self))]
     fn create_dir(&self, path: &std::path::Path) -> virtual_fs::Result<()> {
         self.0.create_dir(path)
+    }
+
+    #[tracing::instrument(level = "trace", skip(self))]
+    fn create_symlink(&self, source: &Path, target: &Path) -> virtual_fs::Result<()> {
+        self.0.create_symlink(source, target)
     }
 
     #[tracing::instrument(level = "trace", skip(self))]

@@ -77,8 +77,7 @@ pub(crate) fn copy_stdin_to_tty(
                 }
                 Ok(_) => {
                     tty = tty.on_event(wasmer_wasix::os::InputEvent::Raw(buffer.split().into())).await;
-                    todo!()
-                    //if tty.eof_take() { eof.set(); }
+                    if tty.eof_take() { eof.set(); }
                 }
                 Err(e) => {
                     tracing::warn!(

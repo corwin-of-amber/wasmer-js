@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use anyhow::Context;
 use js_sys::Array;
-use virtual_fs::{FileSystem, MountFileSystem, TmpFileSystem};
+use virtual_fs::MountFileSystem;
 use wasm_bindgen::{prelude::wasm_bindgen, JsCast, JsValue, UnwrapThrowExt};
 use wasmer_wasix::WasiEnvBuilder;
 
@@ -238,7 +238,6 @@ impl RunOptions {
     }
 
     pub(crate) fn filesystem(&self) -> Result<MountFileSystem, Error> {
-        let mountpoints = self.mounted_directories()?;
         let root = MountFileSystem::new();
 
         for (dest, fs) in self.mounted_directories()? {

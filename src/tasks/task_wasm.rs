@@ -5,8 +5,7 @@
 use anyhow::Context;
 use bytes::Bytes;
 use derivative::Derivative;
-use js_sys::WebAssembly;
-use wasm_bindgen::{JsCast, JsValue};
+use wasm_bindgen::JsValue;
 use wasmer::{js::AsJs, Memory, MemoryType, Module, Store};
 use wasmer_wasix::{
     runtime::task_manager::{
@@ -41,24 +40,6 @@ pub(crate) fn to_scheduler_message(
         wasmer_wasix::runtime::SpawnType::CreateMemoryOfType(ty) => {
             (Some(ty), None, WasmMemoryType::CreateMemoryOfType(ty))
         }
-        /*
-        wasmer_wasix::runtime::SpawnType::CopyMemory(m, store) => {
-            let memory_ty = m.ty(&store);
-            let memory = m.as_jsvalue(&store);
-
-            // We copy the memory here rather than later as
-            // the fork syscalls need to copy the memory
-            // synchronously before the next thread accesses
-            // and before the fork parent resumes, otherwise
-            // there will be memory corruption
-            let memory = copy_memory(&memory, m.ty(&store))?;
-
-            (
-                Some(memory_ty),
-                Some(memory),
-                WasmMemoryType::ShareMemory(memory_ty),
-            )
-        } */
         wasmer_wasix::runtime::SpawnType::AttachMemory(m) => {
             let mut store = Store::default();
             let m = m.attach(&mut store);
@@ -114,60 +95,6 @@ pub(crate) enum WasmMemoryType {
     CreateMemory,
     CreateMemoryOfType(MemoryType),
     ShareMemory(MemoryType),
-}
-
-/// Duplicate a [`WebAssembly::Memory`] instance.
-fn copy_memory(memory: &JsValue, ty: MemoryType) -> Result<JsValue, WasiThreadError> {
-    let memory_js = memory.dyn_ref::<WebAssembly::Memory>().unwrap();
-
-    let descriptor = js_sys::Object::new();
-
-    // Annotation is here to prevent spurious IDE warnings.
-    js_sys::Reflect::set(&descriptor, &"initial".into(), &ty.minimum.0.into()).unwrap();
-    if let Some(max) = ty.maximum {
-        js_sys::Reflect::set(&descriptor, &"maximum".into(), &max.0.into()).unwrap();
-    }
-    js_sys::Reflect::set(&descriptor, &"shared".into(), &ty.shared.into()).unwrap();
-
-    let new_memory = WebAssembly::Memory::new(&descriptor).map_err(|_e| {
-        WasiThreadError::MemoryCreateFailed(wasmer::MemoryError::Generic(
-            "Error while creating the memory".to_owned(),
-        ))
-    })?;
-
-    let src_buffer = memory_js.buffer();
-    let src_size: u64 = src_buffer
-        .unchecked_ref::<js_sys::ArrayBuffer>()
-        .byte_length()
-        .into();
-    let src_view = js_sys::Uint8Array::new(&src_buffer);
-
-    let pages = ((src_size as usize - 1) / wasmer::WASM_PAGE_SIZE) + 1;
-    new_memory.grow(pages as u32 - ty.minimum.0);
-
-    let dst_buffer = new_memory.buffer();
-    let dst_view = js_sys::Uint8Array::new(&dst_buffer);
-
-    tracing::trace!(src_size, "memory copy started");
-
-    {
-        let mut offset = 0_u64;
-        let mut chunk = [0u8; 40960];
-        while offset < src_size {
-            let remaining = src_size - offset;
-            let sublen = remaining.min(chunk.len() as u64);
-            let end = offset.checked_add(sublen).unwrap();
-            src_view
-                .subarray(offset.try_into().unwrap(), end.try_into().unwrap())
-                .copy_to(&mut chunk[..sublen as usize]);
-            dst_view
-                .subarray(offset.try_into().unwrap(), end.try_into().unwrap())
-                .copy_from(&chunk[..sublen as usize]);
-            offset += sublen;
-        }
-    }
-
-    Ok(new_memory.into())
 }
 
 #[derive(Derivative)]
@@ -329,7 +256,7 @@ fn build_ctx_and_store(
         Err(err) => {
             tracing::error!(
                 error = &err as &dyn std::error::Error,
-                "Failed to crate wasi context",
+                "Failed to create wasi context",
             );
             return None;
         }

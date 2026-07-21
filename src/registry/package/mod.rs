@@ -125,6 +125,8 @@ impl Wasmer {
 }
 
 impl Wasmer {
+    // this is not tested at all
+    #[allow(unused_variables, unreachable_code)]
     pub(super) async fn publish_package_inner(
         hash: &str,
         manifest: Manifest,

@@ -10,7 +10,6 @@ use wasmer_config::{
     hash::Sha256Hash,
     package::{PackageHash, PackageId, PackageSource},
 };
-use wasmer_config::package::SuggestedCompilerOptimizations;
 use wasmer_package::package::Package;
 use wasmer_types::ModuleHash;
 use wasmer_wasix::{
@@ -159,6 +158,8 @@ impl Wasmer {
         })
     }
 
+    // this is currently defunct
+    #[allow(unused_variables, unreachable_code)]
     fn from_wasm(wasm: Vec<u8>, runtime: Option<OptionalRuntime>) -> Result<Self, Error> {
         let webc_fs = RootFileSystemBuilder::default().build();
         let hash = ModuleHash::new(&wasm);

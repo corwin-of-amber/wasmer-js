@@ -6,7 +6,7 @@ use std::{
 use anyhow::Context;
 use js_sys::Reflect;
 use tracing::Instrument;
-use virtual_fs::{AsyncReadExt, AsyncWriteExt, FileSystem, FileType};
+use virtual_fs::{AsyncReadExt, AsyncWriteExt, FileSystem};
 use wasm_bindgen::{prelude::wasm_bindgen, JsCast, JsValue};
 
 use shared_buffer::OwnedBuffer;

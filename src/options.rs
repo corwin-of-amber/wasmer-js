@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use anyhow::Context;
-use js_sys::Array;
+use js_sys::{Array, Uint8Array, JsString};
 use virtual_fs::MountFileSystem;
 use wasm_bindgen::{prelude::wasm_bindgen, JsCast, JsValue, UnwrapThrowExt};
 use wasmer_wasix::WasiEnvBuilder;
@@ -30,7 +30,7 @@ type CommonOptions = {
     /** Environment variables to set. */
     env?: Record<string, string>;
     /** The standard input stream. */
-    stdin?: string | Uint8Array;
+    stdin?: string | Uint8Array | StdinOptions;
     /**
      * Directories that should be mounted inside the WASIX instance.
      *
@@ -44,6 +44,10 @@ type CommonOptions = {
     mount?: Record<string, DirectoryInit | Directory>;
     /** The current working directory. */
     cwd?: string;
+};
+
+type StdinOptions = {
+    tty?: bool
 };
 
 /**
@@ -89,7 +93,7 @@ extern "C" {
     fn env(this: &CommonOptions) -> JsValue;
 
     #[wasm_bindgen(method, getter)]
-    fn stdin(this: &CommonOptions) -> Option<StringOrBytes>;
+    pub(crate) fn stdin(this: &CommonOptions) -> Option<StdinOptions>;
 
     #[wasm_bindgen(method, getter)]
     fn mount(this: &CommonOptions) -> OptionalDirectories;
@@ -118,10 +122,6 @@ impl CommonOptions {
             }
             None => Ok(BTreeMap::new()),
         }
-    }
-
-    pub(crate) fn read_stdin(&self) -> Option<Vec<u8>> {
-        self.stdin().map(|s| s.as_bytes())
     }
 
     pub(crate) fn mounted_directories(&self) -> Result<Vec<(String, Directory)>, Error> {
@@ -160,6 +160,25 @@ impl Default for CommonOptions {
         CommonOptions {
             obj: js_sys::Object::new(),
         }
+    }
+}
+
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(typescript_type = "string | Uint8Array | StdinOptions")]
+    #[derive(Default)]
+    pub type StdinOptions;
+
+    #[wasm_bindgen(method, getter)]
+    pub(crate) fn tty(this: &StdinOptions) -> Option<bool>;
+}
+
+impl StdinOptions {
+    pub(crate) fn as_bytes(&self) -> Option<Vec<u8>> {
+        if self.has_type::<JsString>() || self.has_type::<Uint8Array>() {
+            Some(self.unchecked_ref::<StringOrBytes>().as_bytes())
+        }
+        else { None }
     }
 }
 
@@ -222,10 +241,17 @@ impl RunOptions {
                 TerminalMode::NonInteractive { stdin } => {
                     tracing::debug!("Setting up non-interactive stdin/stdout");
                     let (stdout_pipe, stdout_stream) = crate::streams::output_pipe();
-                    builder.set_stdin(Box::new(stdin));
                     builder.set_stdout(Box::new(stdout_pipe));
                     builder.set_stderr(Box::new(stderr_pipe));
-                    (None, stdout_stream, stderr_stream)
+                    if let Some(stdin) = stdin {
+                        builder.set_stdin(Box::new(stdin));
+                        (None, stdout_stream, stderr_stream)
+                    }
+                    else {
+                        let (stdin_pipe, stdin_stream) = crate::streams::input_pipe();
+                        builder.set_stdin(Box::new(stdin_pipe));
+                        (Some(stdin_stream), stdout_stream, stderr_stream)
+                    }
                 }
             };
 

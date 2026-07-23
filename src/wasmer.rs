@@ -358,6 +358,7 @@ pub(crate) async fn configure_runner(
         }
         TerminalMode::NonInteractive { stdin } => {
             tracing::debug!("Setting up non-interactive TTY");
+            let stdin = stdin.expect("`Command` run requires static stdin");
             let (stdout_pipe, stdout_stream) = crate::streams::output_pipe();
             runner.with_stdin(Box::new(stdin));
             runner.with_stdout(Box::new(stdout_pipe));
@@ -376,9 +377,9 @@ pub(crate) async fn configure_runner(
 
 pub(crate) fn setup_tty(options: &CommonOptions, tty_options: TtyOptions) -> TerminalMode {
     // Handle the simple (non-interactive) case first.
-    if let Some(stdin) = options.read_stdin() {
+    if let Some(stdin) = options.stdin() {
         return TerminalMode::NonInteractive {
-            stdin: virtual_fs::StaticFile::new(stdin),
+            stdin: stdin.as_bytes().map(|buf| virtual_fs::StaticFile::new(buf))
         };
     }
 
@@ -432,8 +433,8 @@ pub(crate) enum TerminalMode {
         stdin_stream: WritableStream,
     },
     NonInteractive {
-        /// The file to use as the WASIX instance's stdin.
-        stdin: virtual_fs::StaticFile,
+        /// The file to use as the WASIX instance's stdin. (if None, create pipe)
+        stdin: Option<virtual_fs::StaticFile>,
     },
 }
 

@@ -204,6 +204,24 @@ impl wasmer_wasix::runtime::Runtime for Runtime {
     fn tty(&self) -> Option<&(dyn wasmer_wasix::os::TtyBridge + Send + Sync)> {
         Some(self)
     }
+
+    fn additional_imports(
+            &self,
+            module: &wasmer::Module,
+            store: &mut wasmer::StoreMut,
+        ) -> anyhow::Result<wasmer::Imports> {
+        let mut import_object = wasmer::Imports::new();
+
+        if let Ok(function_table_type) = wasmer_wasix::main_module_function_table_type(&module) {
+            tracing::warn!(
+                minimum_size = ?function_table_type.minimum,
+                "Creating indirect function table"
+            );
+            let table = wasmer::Table::new(store, function_table_type, wasmer::Value::FuncRef(None))?;
+            import_object.define("env", "__indirect_function_table", table.clone());
+        }
+        Ok(import_object)
+    }
 }
 
 impl TtyBridge for Runtime {

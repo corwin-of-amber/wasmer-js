@@ -47,7 +47,7 @@ type CommonOptions = {
 };
 
 type StdinOptions = {
-    tty?: bool
+    tty?: boolean
 };
 
 /**
@@ -274,7 +274,7 @@ impl RunOptions {
                 .with_context(|| format!("Unable to mount to \"{dest}\""))?;
         }
 
-        tracing::trace!(?root, "Initialized the filesystem");
+        tracing::trace!(/*?root, */"Initialized the filesystem");
 
         Ok(root)
     }

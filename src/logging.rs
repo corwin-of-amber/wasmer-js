@@ -7,6 +7,21 @@ use tracing_subscriber::{
 };
 use wasm_bindgen::{prelude::wasm_bindgen, JsValue};
 
+struct JsTime { epoch: f64 }
+
+impl JsTime {
+    fn new() -> Self {
+        Self { epoch: js_sys::Date::now() }
+    }
+}
+
+impl tracing_subscriber::fmt::time::FormatTime for JsTime {
+    fn format_time(&self, w: &mut tracing_subscriber::fmt::format::Writer<'_>) -> alloc::fmt::Result {
+        let e = js_sys::Date::now();
+        write!(w, "({}) ", e - self.epoch)
+    }
+}
+
 /// Initialize the logger used by `@wasmer/wasix`.
 ///
 /// This function can only be called once. Subsequent calls will raise an
@@ -37,19 +52,33 @@ pub fn initialize_logger(filter: Option<String>) -> Result<(), crate::utils::Err
         .into_level()
         .unwrap_or(tracing::Level::ERROR);
 
+    let profiling = filter.as_ref().is_some_and(|s| s.contains("prof"));
+
     let filter = EnvFilter::builder()
         .with_regex(false)
         .with_default_directive(max_level.into())
         .parse_lossy(filter.unwrap_or_else(|| crate::DEFAULT_RUST_LOG.join(",")));
 
-    tracing_subscriber::fmt::fmt()
-        .with_writer(ConsoleLogger::spawn())
-        .with_env_filter(filter)
-        .with_span_events(FmtSpan::CLOSE)
-        .without_time()
-        .try_init()
-        .map_err(|e| anyhow::anyhow!(e))?;
+    let trc =
+        tracing_subscriber::fmt::fmt()
+            .with_writer(ConsoleLogger::spawn())
+            .with_env_filter(filter);
 
+    if profiling {
+        trc
+            .with_timer(JsTime::new())
+            .with_thread_ids(true)
+            .try_init()
+            .map_err(|e| anyhow::anyhow!(e))?;
+    }
+    else {
+        trc
+            .with_span_events(FmtSpan::CLOSE)
+            .without_time()
+            .try_init()
+            .map_err(|e| anyhow::anyhow!(e))?;
+    }
+    
     Ok(())
 }
 

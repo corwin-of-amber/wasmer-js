@@ -6,7 +6,7 @@ use anyhow::Context;
 use bytes::Bytes;
 use derivative::Derivative;
 use wasm_bindgen::JsValue;
-use wasmer::{js::AsJs, Memory, MemoryType, Module, Store};
+use wasmer::{js::AsJs, SharedMemory, Memory, MemoryType, Module, Store};
 use wasmer_wasix::{
     runtime::task_manager::{
         SpawnMemoryTypeOrStore, TaskWasm, TaskWasmPreRun, TaskWasmRecycle, TaskWasmRun,
@@ -40,30 +40,24 @@ pub(crate) fn to_scheduler_message(
         wasmer_wasix::runtime::SpawnType::CreateMemoryOfType(ty) => {
             (Some(ty), None, WasmMemoryType::CreateMemoryOfType(ty))
         }
-        wasmer_wasix::runtime::SpawnType::AttachMemory(m) => {
-            let mut store = Store::default();
-            let m = m.attach(&mut store);
-            let ty = m.ty(&store);
-            let memory = m.as_jsvalue(&store);
-            (
-                Some(ty),
-                Some(memory),
-                WasmMemoryType::ShareMemory(m.ty(&store)),
-            )
-        },
-        wasmer_wasix::runtime::SpawnType::NewLinkerInstanceGroup(..) => todo!()
+        wasmer_wasix::runtime::SpawnType::AttachMemory(m) =>
+            make_memory(m),
+        wasmer_wasix::runtime::SpawnType::NewLinkerInstanceGroup(ig) =>
+            make_memory(ig.memory)
     };
 
-    let memory = memory.map(|m| {
+    fn make_memory(m: SharedMemory) -> (Option<MemoryType>, Option<Memory>, WasmMemoryType) {
         // HACK: The store isn't used when converting memories, so it's fine to
         // use a dummy one.
-        let mut store = wasmer::Store::default();
-        let ty = memory_ty.expect("Guaranteed to be set");
-        match wasmer::Memory::from_jsvalue(&mut store, &ty, &m) {
-            Ok(m) => m,
-            Err(_) => unreachable!(),
-        }
-    });
+        let mut store = Store::default();
+        let m = m.attach(&mut store);
+        let ty = m.ty(&store);
+        (
+            Some(ty.clone()),
+            Some(m),
+            WasmMemoryType::ShareMemory(ty),
+        )
+    }
 
     let store_snapshot = globals.clone();
     let spawn_wasm = SpawnWasm {
@@ -223,8 +217,6 @@ fn build_ctx_and_store(
 ) -> Option<(WasiFunctionEnv, Store)> {
     // Compile the web assembly module
     let module: Module = (module, module_bytes).into();
-
-    //web_sys::console::warn_3(&"task_wasm".into(), &format!("{:?}", run_type).into(), &memory);
 
     // Make a fake store which will hold the memory we just transferred
     let mut temp_store = env.runtime().new_store();

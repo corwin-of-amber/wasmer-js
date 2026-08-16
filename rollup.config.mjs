@@ -76,7 +76,7 @@ const makeConfig = (env = "development", plugins = []) => {
     external: EXTERNAL,
   };
   const tsConfig = {
-    input: entries,
+    input: entries.filter(fn => fn.endsWith('.ts')),
     output: {
       dir: 'dist',
       format: 'esm',

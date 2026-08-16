@@ -9,6 +9,7 @@
     "target": "esnext",
     "lib": ["esnext", "DOM"],
     "rootDir": "src-js",
+    "outDir": "dist",
     "module": "esnext",
     "noEmit": false,
     "moduleResolution": "Bundler",

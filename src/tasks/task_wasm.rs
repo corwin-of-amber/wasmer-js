@@ -33,17 +33,18 @@ pub(crate) fn to_scheduler_message(
 
     let module_bytes = module.serialize().unwrap_or_default();
 
-    let (memory_ty, memory, run_type) = match spawn_type {
+    let ((memory_ty, memory, run_type), linker_data) = match spawn_type {
         wasmer_wasix::runtime::SpawnType::CreateMemory => {
-            (None, None, WasmMemoryType::CreateMemory)
+            ((None, None, WasmMemoryType::CreateMemory), None)
         }
         wasmer_wasix::runtime::SpawnType::CreateMemoryOfType(ty) => {
-            (Some(ty), None, WasmMemoryType::CreateMemoryOfType(ty))
+            ((Some(ty), None, WasmMemoryType::CreateMemoryOfType(ty)), None)
         }
         wasmer_wasix::runtime::SpawnType::AttachMemory(m) =>
-            make_memory(m),
-        wasmer_wasix::runtime::SpawnType::NewLinkerInstanceGroup(ig) =>
-            make_memory(ig.memory)
+            (make_memory(m), None),
+        wasmer_wasix::runtime::SpawnType::NewLinkerInstanceGroup(mut ig) => {
+            (make_memory(ig.memory.take().unwrap()), Some(ig))
+        }
     };
 
     fn make_memory(m: SharedMemory) -> (Option<MemoryType>, Option<Memory>, WasmMemoryType) {
@@ -75,6 +76,7 @@ pub(crate) fn to_scheduler_message(
         result: None,
         recycle: callbacks.recycle,
         store_snapshot,
+        linker_data
     };
 
     Ok(SchedulerMessage::SpawnWithModuleAndMemory {
@@ -127,6 +129,10 @@ pub(crate) struct SpawnWasm {
     result: Option<Result<Bytes, ExitCode>>,
     #[derivative(Debug(format_with = "crate::utils::hidden"))]
     recycle: Option<Box<TaskWasmRecycle>>,
+    /// For dynamic executables
+    #[derivative(Debug(format_with = "crate::utils::hidden"))]
+    linker_data: Option<wasmer_wasix::PreparedInstanceGroupData>,
+    //linker_data: bool,
 }
 
 impl SpawnWasm {
@@ -176,6 +182,7 @@ impl ReadySpawnWasm {
             trigger: _,
             recycle,
             store_snapshot,
+            linker_data
         }) = self;
 
         // Invoke the callback which will run the web assembly module
@@ -187,6 +194,7 @@ impl ReadySpawnWasm {
             store_snapshot,
             run_type,
             update_layout,
+            linker_data
         )
         .context("Unable to initialize the context and store")?;
 
@@ -214,6 +222,7 @@ fn build_ctx_and_store(
     store_snapshot: Option<StoreSnapshot>,
     run_type: WasmMemoryType,
     update_layout: bool,
+    linker_data: Option<wasmer_wasix::PreparedInstanceGroupData>
 ) -> Option<(WasiFunctionEnv, Store)> {
     // Compile the web assembly module
     let module: Module = (module, module_bytes).into();
@@ -235,6 +244,10 @@ fn build_ctx_and_store(
         }
     };
 
+    let linker_data = linker_data.map(|mut m| {
+        m.module = Some(module.clone()); m
+    });
+
     let (ctx, store) = match WasiFunctionEnv::new_with_store(
         module,
         env,
@@ -242,7 +255,7 @@ fn build_ctx_and_store(
         spawn_type,
         update_layout,
         false,  /* call_initialize */
-        None
+        linker_data
     ) {
         Ok(a) => a,
         Err(err) => {

@@ -143,6 +143,18 @@ impl Directory {
         Ok(js_sys::Uint8Array::from(&buffer[..]))
     }
 
+    // Gets the file type from the file's metadata (as a string enum).
+    #[wasm_bindgen(js_name = "fileType")]
+    pub fn file_type(&self, path: String) -> Result<String, Error> {
+        let metadata = self.0.metadata(path.as_ref())?;
+        match metadata.file_type() {
+            ft if ft.is_dir() => Ok(String::from("dir")),
+            ft if ft.is_file() => Ok(String::from("file")),
+            ft if ft.is_symlink() => Ok(String::from("symlink")),
+            _ => Err(Error::JavaScript("unknown file type".into()))
+        }
+    }
+
     /// Create a directory.
     #[wasm_bindgen(js_name = "createDir")]
     pub async fn create_dir(&self, mut path: String) -> Result<(), Error> {
@@ -327,7 +339,7 @@ export type DirEntry = {
     /**
      * What type of entry is this?
      */
-    type: "file" | "dir" | "unknown";
+    type: "file" | "dir" | "symlink" | "unknown";
     /**
      * What is the item's name? (the last component in the path)
      */

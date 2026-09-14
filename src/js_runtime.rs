@@ -40,7 +40,7 @@ impl JsRuntime {
             None => Some(crate::DEFAULT_REGISTRY.to_string()),
         };
 
-        let mut rt = Runtime::new().with_default_pool();
+        let mut rt = Runtime::new();  // Do not initialize the pool just yet
 
         if let Some(registry) = registry.as_deref() {
             let api_key = options.as_ref().and_then(|opts| opts.api_key());
@@ -70,6 +70,14 @@ impl JsRuntime {
     pub fn tty_echo(&self) -> bool {
         use wasmer_wasix::os::TtyBridge;
         self.rt.tty_get().echo
+    }
+
+    pub fn tty_resize(&self, cols: u32, rows: u32) {
+        use wasmer_wasix::os::TtyBridge;
+        let mut tty = self.rt.tty_get();
+        tty.cols = cols;
+        tty.rows = rows;
+        self.rt.tty_set(tty);
     }
 
     pub async fn exec_bare(&self, module: WasmModule, config: RunOptions)

@@ -28,7 +28,7 @@ impl WorkerMessage {
             consts::TYPE_IDLE => Ok(WorkerMessage::MarkIdle),
             consts::TYPE_SCHEDULER => {
                 let value: JsValue = de.js(consts::MESSAGE)?;
-                let msg = SchedulerMessage::try_from_js(value)?;
+                let msg = unsafe { SchedulerMessage::try_from_js(value)? };
                 Ok(WorkerMessage::Scheduler(msg))
             }
             other => Err(anyhow::anyhow!("Unknown message type, \"{other}\"").into()),

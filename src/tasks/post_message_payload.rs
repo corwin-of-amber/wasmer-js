@@ -119,11 +119,11 @@ impl PostMessagePayload {
         // Safety: Keep this in sync with PostMessagePayload::to_js()
         match de.ty()?.as_str() {
             consts::TYPE_SPAWN_ASYNC => {
-                let task = de.boxed(consts::PTR)?;
+                let task = unsafe { de.boxed(consts::PTR)? };
                 Ok(PostMessagePayload::Async(AsyncJob::Thunk(task)))
             }
             consts::TYPE_SPAWN_BLOCKING => {
-                let task = de.boxed(consts::PTR)?;
+                let task = unsafe { de.boxed(consts::PTR)? };
                 Ok(PostMessagePayload::Blocking(BlockingJob::Thunk(task)))
             }
             consts::TYPE_CACHE_MODULE => {
@@ -136,9 +136,9 @@ impl PostMessagePayload {
                 ))
             }
             consts::TYPE_SPAWN_WITH_MODULE => {
-                let task = de.boxed(consts::PTR)?;
+                let task = unsafe { de.boxed(consts::PTR)? };
                 let module: WebAssembly::Module = de.js(consts::MODULE)?;
-                let bytes: bytes::Bytes = de.boxed(consts::BYTES)?;
+                let bytes: bytes::Bytes = unsafe { de.boxed(consts::BYTES)? };
 
                 Ok(PostMessagePayload::Blocking(BlockingJob::SpawnWithModule {
                     module: wasmer::Module::from((module, bytes)),
@@ -148,7 +148,7 @@ impl PostMessagePayload {
             consts::TYPE_SPAWN_WITH_MODULE_AND_MEMORY => {
                 let module: WebAssembly::Module = de.js(consts::MODULE)?;
                 let memory = de.js(consts::MEMORY).ok();
-                let spawn_wasm = de.boxed(consts::PTR)?;
+                let spawn_wasm = unsafe { de.boxed(consts::PTR)? };
 
                 Ok(PostMessagePayload::Blocking(
                     BlockingJob::SpawnWithModuleAndMemory {

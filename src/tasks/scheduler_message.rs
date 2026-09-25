@@ -68,11 +68,11 @@ impl SchedulerMessage {
 
         match de.ty()?.as_str() {
             consts::TYPE_SPAWN_ASYNC => {
-                let task = de.boxed(consts::PTR)?;
+                let task = unsafe { de.boxed(consts::PTR)? };
                 Ok(SchedulerMessage::SpawnAsync(task))
             }
             consts::TYPE_SPAWN_BLOCKING => {
-                let task = de.boxed(consts::PTR)?;
+                let task = unsafe { de.boxed(consts::PTR)? };
                 Ok(SchedulerMessage::SpawnBlocking(task))
             }
             consts::TYPE_WORKER_IDLE => {
@@ -94,14 +94,14 @@ impl SchedulerMessage {
             }
             consts::TYPE_SPAWN_WITH_MODULE => {
                 let module: WebAssembly::Module = de.js(consts::MODULE)?;
-                let task = de.boxed(consts::PTR)?;
+                let task = unsafe { de.boxed(consts::PTR)? };
                 Ok(SchedulerMessage::SpawnWithModule {
                     module: module.into(),
                     task,
                 })
             }
             consts::TYPE_SPAWN_WITH_MODULE_AND_MEMORY => {
-                let spawn_wasm: SpawnWasm = de.boxed(consts::PTR)?;
+                let spawn_wasm: SpawnWasm = unsafe { de.boxed(consts::PTR)? };
                 let module: WebAssembly::Module = de.js(consts::MODULE)?;
                 let module_bytes = spawn_wasm.module_bytes();
                 let module = wasmer::Module::from((module, module_bytes));

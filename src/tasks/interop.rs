@@ -42,7 +42,7 @@ impl Deserializer {
     pub unsafe fn boxed<T>(&self, field: &str) -> Result<T, Error> {
         let raw_address: BigInt = self.js(field)?;
         let address = u64::try_from(raw_address).unwrap() as usize as *mut T;
-        let boxed = Box::from_raw(address);
+        let boxed = unsafe { Box::from_raw(address) };
         Ok(*boxed)
     }
 

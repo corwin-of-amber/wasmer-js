@@ -6,7 +6,7 @@ use std::{
 use anyhow::Context;
 use js_sys::Reflect;
 use tracing::Instrument;
-use virtual_fs::{AsyncReadExt, AsyncWriteExt, FileSystem};
+use virtual_fs::{AsyncReadExt, AsyncWriteExt, FileSystem, mem_fs};
 use wasm_bindgen::{prelude::wasm_bindgen, JsCast, JsValue};
 
 use shared_buffer::OwnedBuffer;
@@ -107,7 +107,7 @@ impl Directory {
         slashify(&mut path);
         let path = PathBuf::from(path);
 
-        if let Some(fs) = self.0.downcast_ref::<virtual_fs::mem_fs::FileSystem>() {
+        if let Some(fs) = self.0.downcast_ref::<mem_fs::FileSystem>() {
             fs.insert_ro_file(&path, OwnedBuffer::from_bytes(contents.as_bytes()))?;
             Ok(())
         }
@@ -219,6 +219,17 @@ impl Directory {
 
         Ok(())
     }
+
+    pub fn offload(&mut self, bytes: Vec<u8>, entries: js_sys::Iterator) -> Result<(), Error> {
+        if let Some(fs) = self.0.downcast_ref::<mem_fs::FileSystem>() {
+            let buffer = OwnedBuffer::from_bytes(bytes);
+            let back = mem_fs::OffloadBackingStore::from_buffer(buffer);
+            fs.set_backing_offload(back)?;
+
+            offload_deserialize(fs, entries)
+        }
+        else { Err(Error::js("cannot deserialize filesystem: not a memfs")) }
+    }
 }
 
 impl Directory {
@@ -250,7 +261,7 @@ impl Directory {
 
 impl Default for Directory {
     fn default() -> Self {
-        Directory(Arc::new(virtual_fs::mem_fs::FileSystem::default()), Default::default())
+        Directory(Arc::new(mem_fs::FileSystem::default()), Default::default())
     }
 }
 
@@ -388,8 +399,8 @@ fn slashify(path: &mut String) {
 
 /// Construct an in-memory [`FileSystem`] based on an object mapping paths to
 /// their contents (`Record<string, string | Uint8Array>`).
-fn in_memory_filesystem(record: &js_sys::Object) -> Result<virtual_fs::mem_fs::FileSystem, Error> {
-    let fs = virtual_fs::mem_fs::FileSystem::default();
+fn in_memory_filesystem(record: &js_sys::Object) -> Result<mem_fs::FileSystem, Error> {
+    let fs = mem_fs::FileSystem::default();
 
     for (key, contents) in crate::utils::object_entries(record)? {
         let mut path = String::from(key);
@@ -441,5 +452,29 @@ fn create_dir_all(fs: &dyn FileSystem, path: &Path) -> Result<(), anyhow::Error>
         })?;
     }
 
+    Ok(())
+}
+
+/// Populates the filesystem with offloaded data from the JS iterator.
+/// Each element is either `[string, number, number]` or `[string]`;
+/// The former designates a file (with offset and size), the latter
+/// designates a directory. All paths are absolute.
+#[tracing::instrument(level = "trace", skip(fs))]
+pub fn offload_deserialize(fs: &mem_fs::FileSystem, entries: js_sys::Iterator) -> Result<(), Error> {
+    for entry in entries.into_iter() {
+        if let Ok(entry) = entry.map_err(Error::js)?.dyn_into::<js_sys::Array>() {
+            if let Some(mut fname) = entry.get(0).as_string() {
+                slashify(&mut fname);
+                if let (Some(offset), Some(size)) = (entry.get(1).as_f64(), entry.get(2).as_f64()) {
+                    fs.insert_offloaded_file(fname.as_ref(), offset as u64, size as u64)?;
+                }
+                else {
+                    create_dir_all(&*fs, fname.as_ref())?
+                }
+            }
+            else { return Err(Error::js("invalid entry; [0] is not a string")) }
+        }
+        else { return Err(Error::js("invalid entry; expected array")) }
+    }
     Ok(())
 }

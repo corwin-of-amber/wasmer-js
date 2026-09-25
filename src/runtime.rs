@@ -5,15 +5,14 @@ use once_cell::sync::Lazy;
 use virtual_net::VirtualNetworking;
 use wasmer_config::package::PackageSource;
 use wasmer_wasix::{
-    http::{HttpClient, WebHttpClient as DefaultHttpClient}, // reqwest::ReqwestHttpClient
+    http::{HttpClient, WebHttpClient as DefaultHttpClient},
     os::{TtyBridge, TtyOptions},
     runtime::{
         module_cache::ThreadLocalCache,
         package_loader::PackageLoader,
         resolver::{BackendSource, PackageSummary, QueryError, Source},
     },
-    VirtualTaskManager,
-    WasiTtyState,
+    VirtualTaskManager, WasiTtyState, is_dynamically_linked,
 };
 
 lazy_static! {
@@ -212,7 +211,8 @@ impl wasmer_wasix::runtime::Runtime for Runtime {
         ) -> anyhow::Result<wasmer::Imports> {
         let mut import_object = wasmer::Imports::new();
 
-        if let Ok(function_table_type) = wasmer_wasix::main_module_function_table_type(&module) {
+        if !is_dynamically_linked(module) &&
+           let Ok(function_table_type) = wasmer_wasix::main_module_function_table_type(&module) {
             tracing::warn!(
                 minimum_size = ?function_table_type.minimum,
                 "Creating indirect function table"

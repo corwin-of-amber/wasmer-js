@@ -41,9 +41,6 @@ impl Scheduler {
             async move {
                 while let Some(msg) = receiver.recv().await {
                     tracing::trace!(?msg, "Executing a message");
-                    if let SchedulerMessage::Close = msg {
-                        break;
-                    }
                     if let Err(e) = scheduler.execute(msg) {
                         tracing::error!(error = &*e, "An error occurred while handling a message");
                     }
@@ -154,8 +151,7 @@ impl SchedulerState {
         match message {
             SchedulerMessage::Close => {
                 tracing::debug!("Scheduler received Close message");
-                self.idle.clear();
-                // self.busy.clear();
+                self.reset();
                 Ok(())
             }
             SchedulerMessage::SpawnAsync(task) => {
@@ -229,27 +225,29 @@ impl SchedulerState {
     /// Send a task to one of the worker threads, preferring workers that aren't
     /// running synchronous work.
     fn post_message(&mut self, msg: PostMessagePayload) -> Result<(), Error> {
-        let would_block = msg.would_block();
-        let worker = self.next_available_worker(would_block)?;
-        if !would_block {
-            self.asyn.push_back(worker.clone());
-        }
+        let block = msg.would_block();
+        let worker = self.next_available_worker(block)?;
 
         worker
             .send(msg)
             .with_context(|| format!("Unable to send a message to worker {}", worker.id()))?;
 
-        self.busy.push_back(worker);
+        if block { self.busy.push_back(worker); }
+        else     { self.asyn.push_front(worker); }
 
         Ok(())
     }
 
-    fn next_available_worker(&mut self, would_block: bool) -> Result<WorkerHandle, Error> {
-        if !would_block {
-            if let Some(worker) = self.asyn.front() {
-                return Ok(worker.clone());
-            }
+    fn next_available_worker(&mut self, block: bool) -> Result<WorkerHandle, Error> {
+        if !block &&
+           let Some(worker) = self.asyn.pop_front() {
+            tracing::trace!(
+                worker.id = worker.id(),
+                "Sending the message to an async worker"
+            );
+            return Ok(worker);
         }
+        
         // First, try to send the message to an idle worker
         if let Some(worker) = self.idle.pop_front() {
             tracing::trace!(
@@ -290,6 +288,19 @@ impl SchedulerState {
         }
 
         Ok(handle)
+    }
+
+    fn reset(&mut self) {
+        tracing::trace!(
+            idle_workers=?self.idle.iter().map(|w| w.id()).collect::<Vec<_>>(),
+            busy_workers=?self.busy.iter().map(|w| w.id()).collect::<Vec<_>>(),
+            asyn_workers=?self.asyn.iter().map(|w| w.id()).collect::<Vec<_>>(),
+            "Scheduler reset",
+        );        
+        // note: workers are terminated when `WorkerHandle` is dropped
+        for q in vec![&mut self.idle, &mut self.busy, &mut self.asyn] {
+            q.clear();
+        }
     }
 }
 

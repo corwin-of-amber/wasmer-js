@@ -144,6 +144,10 @@ impl Runtime {
         let networking = crate::net::connect_networking(gateway_url);
         self.networking = Arc::new(networking);
     }
+
+    pub fn reboot() {
+        DEFAULT_THREAD_POOL.close();
+    }
 }
 
 impl Runtime {

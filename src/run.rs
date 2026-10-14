@@ -65,6 +65,11 @@ async fn run_wasix_inner(wasm_module: WasmModule, config: RunOptions) -> Result<
 }
 
 #[wasm_bindgen]
+pub fn reboot() {
+    crate::runtime::Runtime::reboot();
+}
+
+#[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(typescript_type = "WebAssembly.Module | Uint8Array")]
     pub type WasmModule;

@@ -274,7 +274,7 @@ mod tests {
         let engine = wasmer::Engine::default();
         let module = wasmer::Module::new(&engine, wasm).unwrap();
         let msg = PostMessagePayload::Notification(Notification::CacheModule {
-            hash: ModuleHash::xxhash(wasm),
+            hash: ModuleHash::new(wasm),
             module: module.into(),
         });
 
@@ -283,7 +283,7 @@ mod tests {
 
         match round_tripped {
             PostMessagePayload::Notification(Notification::CacheModule { hash, module: _ }) => {
-                assert_eq!(hash, ModuleHash::xxhash(wasm));
+                assert_eq!(hash, ModuleHash::new(wasm));
             }
             _ => unreachable!(),
         };

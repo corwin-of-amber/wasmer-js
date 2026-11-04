@@ -108,10 +108,16 @@ impl ExitCondition {
         };
 
         // looks like some sort of error occurred.
-        let error_code = err
-            .chain()
-            .find_map(|e| e.downcast_ref::<WasiRuntimeError>())
-            .and_then(|runtime_error| runtime_error.as_exit_code());
+        let error_code = err.chain().find_map(|error| {
+            error
+                .downcast_ref::<WasiRuntimeError>()
+                .and_then(WasiRuntimeError::as_exit_code)
+                .or_else(|| {
+                    error
+                        .downcast_ref::<std::sync::Arc<WasiRuntimeError>>()
+                        .and_then(|error| error.as_exit_code())
+                })
+        });
 
         match error_code {
             Some(code) => ExitCondition(code.raw()),
@@ -258,5 +264,41 @@ mod tests {
         let mut buffer = Vec::new();
         let bytes_read = stdin.read_to_end(&mut buffer).await.unwrap();
         assert_eq!(bytes_read, 0);
+    }
+}
+
+#[cfg(test)]
+mod exit_condition_tests {
+    use super::*;
+    use std::sync::Arc;
+    use wasm_bindgen_test::wasm_bindgen_test;
+    use wasmer_wasix::{WasiError, WasiRuntimeError};
+
+    #[wasm_bindgen_test]
+    fn preserve_direct_and_shared_exit_codes() {
+        for code in [0, 7, 255] {
+            let direct = WasiRuntimeError::Wasi(WasiError::Exit(code.into()));
+            assert_eq!(
+                ExitCondition::from_result(Err(anyhow::Error::new(direct))).0,
+                code
+            );
+            let shared = Arc::new(WasiRuntimeError::Wasi(WasiError::Exit(code.into())));
+            assert_eq!(
+                ExitCondition::from_result(Err(anyhow::Error::new(shared))).0,
+                code
+            );
+            let contextual = Arc::new(WasiRuntimeError::Wasi(WasiError::Exit(code.into())));
+            let contextual = anyhow::Error::new(contextual).context("background guest task");
+            assert_eq!(ExitCondition::from_result(Err(contextual)).0, code);
+        }
+    }
+
+    #[wasm_bindgen_test]
+    fn preserve_success_and_unknown_error_behavior() {
+        assert_eq!(ExitCondition::from_result(Ok(())).0, 0);
+        assert_eq!(
+            ExitCondition::from_result(Err(anyhow::anyhow!("unexpected failure"))).0,
+            1
+        );
     }
 }
